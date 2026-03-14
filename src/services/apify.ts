@@ -1,11 +1,13 @@
 import { ApifyClient } from 'apify-client';
 
-const client = new ApifyClient({
-  token: process.env.APIFY_API_TOKEN,
-});
-
 // TikTok Scraper actor ID (clockworks/tiktok-scraper)
 const TIKTOK_SCRAPER_ACTOR = 'clockworks/tiktok-scraper';
+
+function getClient() {
+  return new ApifyClient({
+    token: process.env.APIFY_API_TOKEN,
+  });
+}
 
 export interface TikTokVideo {
   id: string;
@@ -28,6 +30,8 @@ export interface TikTokVideo {
 }
 
 export async function searchTikTok(keyword: string, maxResults = 20): Promise<TikTokVideo[]> {
+  const client = getClient();
+
   const run = await client.actor(TIKTOK_SCRAPER_ACTOR).call({
     searchQueries: [keyword],
     resultsPerPage: maxResults,
