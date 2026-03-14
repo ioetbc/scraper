@@ -1,0 +1,8 @@
+## MVP Progress
+
+### Step 1: Setup & Dependencies - COMPLETED
+- Installed apify-client, ai, and @ai-sdk/openai via bun
+- Added APIFY_API_TOKEN and OPENAI_API_KEY to .env (placeholders)
+- Commit: 7437f82
+
+### Next: Step 2 - Create Apify Service (src/services/apify.ts)
