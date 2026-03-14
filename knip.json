@@ -1,0 +1,6 @@
+{
+  "rules": {
+    "exports": "off",
+    "types": "off"
+  }
+}

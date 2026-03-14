@@ -5,4 +5,38 @@
 - Added APIFY_API_TOKEN and OPENAI_API_KEY to .env (placeholders)
 - Commit: 7437f82
 
-### Next: Step 2 - Create Apify Service (src/services/apify.ts)
+### Step 2: Create Apify Service - COMPLETED
+- Created src/services/apify.ts
+- searchTikTok function calls clockworks/tiktok-scraper actor
+- Extracts: caption, mentions, hashtags, isAd, isSponsored, creator info, stats
+- Commit: 55099c8
+
+### Step 3: Create Brand Classifier Service - COMPLETED
+- Created src/services/classifier.ts
+- Two-tier LLM approach:
+  - Tier 1 (GPT-4o): isAd/isSponsored flagged content, threshold >0.70
+  - Tier 2 (GPT-4o-mini): non-flagged content, threshold >0.85
+- Uses Vercel AI SDK with zod schema for structured output
+- Returns: isPromotion, brand, confidence, signals, tier
+- Added zod dependency
+- Commit: c45b5fa
+
+### Step 4: Create Search Endpoint - COMPLETED
+- Added POST /api/search endpoint to src/index.ts
+- Accepts { keyword: string } in request body
+- Calls Apify service to fetch TikTok videos
+- Classifies each video using the classifier service
+- Returns structured response with all required fields
+- Added console logging for debugging
+- Commit: f380ba1
+
+### Bugfix: Apify client initialization
+- Fixed lazy initialization of ApifyClient
+- Env vars now read at call time, not module load time
+- Commit: 46e425a
+
+## MVP IMPLEMENTATION COMPLETE
+
+### Testing
+Run: `bun run dev`
+Test: `curl -X POST http://localhost:3000/api/search -H "Content-Type: application/json" -d '{"keyword": "how to add captions"}'`

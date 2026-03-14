@@ -1,3 +1,4 @@
+import 'dotenv/config'
 import { Hono } from 'hono'
 import { searchTikTok } from './services/apify'
 import { classifyVideo } from './services/classifier'
@@ -33,12 +34,16 @@ app.post('/api/search', async (c) => {
         isSponsored: video.isSponsored,
       })
 
-      console.log(`[Classify] Video ${index + 1}: ${classification.isPromotion ? `Promotion for ${classification.brand}` : 'Not promotional'} (confidence: ${classification.confidence.toFixed(2)}, tier: ${classification.tier})`)
+      // Source of truth: promotion if platform flags it OR classifier deems it
+      const isPromotion = video.isAd || video.isSponsored || classification.isPromotion
+
+      console.log(`[Classify] Video ${index + 1}: ${isPromotion ? `Promotion for ${classification.brand}` : 'Not promotional'} (confidence: ${classification.confidence.toFixed(2)}, tier: ${classification.tier})`)
 
       return {
         position: index + 1,
         creator: video.creator,
         caption: video.caption,
+        isPromotion,
         isAd: video.isAd,
         isSponsored: video.isSponsored,
         brand: classification.brand,
@@ -50,6 +55,8 @@ app.post('/api/search', async (c) => {
   )
 
   console.log(`[Search] Classification complete`)
+
+  console.log(JSON.stringify(results, null, 2))
 
   return c.json({
     keyword,

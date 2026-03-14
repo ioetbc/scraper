@@ -35,7 +35,7 @@ export async function searchTikTok(keyword: string, maxResults = 20): Promise<Ti
   const run = await client.actor(TIKTOK_SCRAPER_ACTOR).call({
     searchQueries: [keyword],
     resultsPerPage: maxResults,
-    searchSection: 'top',
+    searchSection: '/video',
     shouldDownloadVideos: false,
     shouldDownloadCovers: false,
     shouldDownloadSubtitles: false,
