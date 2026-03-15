@@ -26,9 +26,15 @@
    - Saves new searches to database after Apify + classification
    - Returns `searchId` in response for future reference
 
+5. **Modify POST /api/brand-explorer** (Task 6)
+   - DB-first approach: checks for existing search before calling Apify
+   - Returns cached results with `cached: true` flag if found
+   - Saves new searches to database after exploration
+   - Returns `searchId` in response for future reference
+   - Fixed route path (was `/api/api/brand-explorer`, now `/api/brand-explorer`)
+
 ### Next Tasks
 
-6. Modify POST /api/brand-explorer to use DB-first approach
 7. Create GET /api/searches endpoint
 8. Create GET /api/searches/:id endpoint
 9. Create POST /api/searches/:id/refresh endpoint

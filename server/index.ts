@@ -10,6 +10,11 @@ import {
   getKeywordSearchResults,
   type KeywordSearchResult,
 } from './services/keyword-search-history'
+import {
+  findBrandExplorerSearch,
+  saveBrandExplorerSearch,
+  getBrandExplorerResults,
+} from './services/brand-explorer-history'
 
 const app = new Hono()
   .basePath('/api')
@@ -185,7 +190,7 @@ const app = new Hono()
       return c.json({ error: 'Internal server error' }, 500)
     }
   })
-  .post('/api/brand-explorer', async (c) => {
+  .post('/brand-explorer', async (c) => {
     const requestId = crypto.randomUUID()
     const startTime = performance.now()
 
@@ -202,7 +207,39 @@ const app = new Hono()
         return c.json({ error: 'handle is required (e.g., "@submagic.co" or "submagic.co")' }, 400)
       }
 
+      // DB-first: Check if we have cached results
+      const existingSearch = await findBrandExplorerSearch(handle)
+
+      if (existingSearch) {
+        const cachedResult = await getBrandExplorerResults(existingSearch.id)
+        const durationMs = Math.round(performance.now() - startTime)
+
+        if (cachedResult) {
+          brandExplorerLogger.info("Brand explorer request completed (cached)", {
+            requestId,
+            handle,
+            statusCode: 200,
+            durationMs,
+            totalVideos: cachedResult.summary.totalVideos,
+            totalInfluencers: cachedResult.summary.totalInfluencers,
+            totalReach: cachedResult.summary.totalReach,
+            cached: true,
+            searchId: existingSearch.id,
+          })
+
+          return c.json({
+            ...cachedResult,
+            searchId: existingSearch.id,
+            cached: true,
+          })
+        }
+      }
+
+      // Not cached: Run brand exploration
       const result = await exploreBrand({ handle })
+
+      // Save to database
+      const savedSearch = await saveBrandExplorerSearch(handle, result)
 
       const durationMs = Math.round(performance.now() - startTime)
 
@@ -214,9 +251,15 @@ const app = new Hono()
         totalVideos: result.summary.totalVideos,
         totalInfluencers: result.summary.totalInfluencers,
         totalReach: result.summary.totalReach,
+        cached: false,
+        searchId: savedSearch.id,
       })
 
-      return c.json(result)
+      return c.json({
+        ...result,
+        searchId: savedSearch.id,
+        cached: false,
+      })
     } catch (error) {
       const durationMs = Math.round(performance.now() - startTime)
 
