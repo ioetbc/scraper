@@ -7,12 +7,14 @@ import { searchLogger, brandExplorerLogger } from './logger'
 import {
   findKeywordSearch,
   saveKeywordSearch,
+  refreshKeywordSearch,
   getKeywordSearchResults,
   type KeywordSearchResult,
 } from './services/keyword-search-history'
 import {
   findBrandExplorerSearch,
   saveBrandExplorerSearch,
+  refreshBrandExplorerSearch,
   getBrandExplorerResults,
 } from './services/brand-explorer-history'
 import { prisma, PLACEHOLDER_USER_ID } from './lib/prisma'
@@ -297,6 +299,142 @@ const app = new Hono()
         error: error instanceof Error ? error.message : String(error),
       })
       return c.json({ error: 'Failed to fetch search results' }, 500)
+    }
+  })
+  .post('/history/:id/refresh', async (c) => {
+    const { id } = c.req.param()
+    const requestId = crypto.randomUUID()
+    const startTime = performance.now()
+
+    try {
+      // Find the search to determine its type and query
+      const search = await prisma.search.findUnique({
+        where: { id },
+      })
+
+      if (!search) {
+        return c.json({ error: 'Search not found' }, 404)
+      }
+
+      if (search.type === 'keyword') {
+        // Re-run keyword search
+        const videos = await searchTikTok(search.query)
+
+        let classificationErrors = 0
+        const classifiedResults: KeywordSearchResult[] = []
+
+        for (const video of videos) {
+          try {
+            const classification = await classifyVideo({
+              caption: video.caption,
+              mentions: video.mentions,
+              hashtags: video.hashtags,
+              isAd: video.isAd,
+              isSponsored: video.isSponsored,
+            })
+
+            classifiedResults.push({
+              video,
+              classification,
+            })
+          } catch {
+            classificationErrors++
+            classifiedResults.push({
+              video,
+              classification: null,
+              error: 'Classification failed',
+            })
+          }
+        }
+
+        // Refresh database with new results
+        await refreshKeywordSearch(id, classifiedResults)
+
+        // Fetch from DB to ensure consistent format
+        const results = await getKeywordSearchResults(id)
+
+        const durationMs = Math.round(performance.now() - startTime)
+
+        searchLogger.info("Search refreshed", {
+          requestId,
+          keyword: search.query,
+          statusCode: 200,
+          durationMs,
+          videoCount: videos.length,
+          classificationErrors,
+          searchId: id,
+        })
+
+        return c.json({
+          keyword: search.query,
+          searchId: id,
+          cached: false,
+          results,
+        })
+      } else if (search.type === 'brand_explorer') {
+        // Re-run brand explorer
+        const result = await exploreBrand({ handle: search.query })
+
+        // Refresh database with new results
+        await refreshBrandExplorerSearch(id, result)
+
+        const durationMs = Math.round(performance.now() - startTime)
+
+        brandExplorerLogger.info("Brand explorer refreshed", {
+          requestId,
+          handle: search.query,
+          statusCode: 200,
+          durationMs,
+          totalVideos: result.summary.totalVideos,
+          totalInfluencers: result.summary.totalInfluencers,
+          totalReach: result.summary.totalReach,
+          searchId: id,
+        })
+
+        return c.json({
+          ...result,
+          searchId: id,
+          cached: false,
+        })
+      }
+
+      return c.json({ error: 'Unknown search type' }, 400)
+    } catch (error) {
+      const durationMs = Math.round(performance.now() - startTime)
+
+      if (error instanceof ApifyError) {
+        searchLogger.error("Refresh failed - Apify error", {
+          requestId,
+          searchId: id,
+          statusCode: 502,
+          durationMs,
+          errorType: "apify",
+          error: error.message,
+        })
+        return c.json({ error: 'Failed to refresh search', details: error.message }, 502)
+      }
+
+      if (error instanceof BrandExplorerError) {
+        brandExplorerLogger.error("Refresh failed - Brand explorer error", {
+          requestId,
+          searchId: id,
+          statusCode: 502,
+          durationMs,
+          errorType: "brand_explorer",
+          error: error.message,
+        })
+        return c.json({ error: 'Failed to refresh search', details: error.message }, 502)
+      }
+
+      searchLogger.error("Refresh failed - Internal error", {
+        requestId,
+        searchId: id,
+        statusCode: 500,
+        durationMs,
+        errorType: "internal",
+        error: error instanceof Error ? error.message : String(error),
+      })
+      return c.json({ error: 'Internal server error' }, 500)
     }
   })
 
