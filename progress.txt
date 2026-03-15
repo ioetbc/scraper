@@ -38,7 +38,11 @@
    - Includes: id, type, query, createdAt, updatedAt, resultCount, summary
    - Ordered by updatedAt descending (most recent first)
 
+7. **Create GET /api/history/:id endpoint** (Task 8)
+   - Returns full results for a specific search
+   - Handles both keyword and brand explorer types
+   - Delegates to service functions for proper response format
+
 ### Next Tasks
 
-8. Create GET /api/history/:id endpoint
 9. Create POST /api/history/:id/refresh endpoint

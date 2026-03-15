@@ -324,6 +324,31 @@ const app = new Hono()
       return c.json({ error: 'Failed to fetch searches' }, 500)
     }
   })
+  .get('/history/:id', async (c) => {
+    const { id } = c.req.param()
+
+    try {
+      // Try keyword search first
+      const keywordResults = await getKeywordSearchResults(id)
+      if (keywordResults.length > 0) {
+        return c.json(keywordResults)
+      }
+
+      // Try brand explorer
+      const brandResults = await getBrandExplorerResults(id)
+      if (brandResults) {
+        return c.json(brandResults)
+      }
+
+      return c.json({ error: 'Search not found' }, 404)
+    } catch (error) {
+      searchLogger.error("Failed to fetch search results", {
+        searchId: id,
+        error: error instanceof Error ? error.message : String(error),
+      })
+      return c.json({ error: 'Failed to fetch search results' }, 500)
+    }
+  })
 
 function extractBrandFromShopUrl(url: string): string | null {
   try {
