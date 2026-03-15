@@ -1,48 +1,20 @@
-## MVP Progress
+## Search Persistence Implementation Progress
 
-### Step 1: Setup & Dependencies - COMPLETED
-- Installed apify-client, ai, and @ai-sdk/openai via bun
-- Added APIFY_API_TOKEN and OPENAI_API_KEY to .env (placeholders)
-- Commit: 7437f82
+### Completed Tasks
 
-### Step 2: Create Apify Service - COMPLETED
-- Created src/services/apify.ts
-- searchTikTok function calls clockworks/tiktok-scraper actor
-- Extracts: caption, mentions, hashtags, isAd, isSponsored, creator info, stats
-- Commit: 55099c8
+1. **Prisma Schema & Client Setup** (Task 1-2)
+   - Created full Prisma schema with all models: User, Search, Video, VideoMention, VideoHashtag, VideoStats, SearchResult, BrandExplorerSummary, BrandExplorerInfluencer
+   - Fixed prisma.config.ts paths for Prisma 7 compatibility
+   - Created Prisma client singleton at server/lib/prisma/
+   - Added placeholder user constant and ensurePlaceholderUser helper
+   - Pushed schema to Supabase database
 
-### Step 3: Create Brand Classifier Service - COMPLETED
-- Created src/services/classifier.ts
-- Two-tier LLM approach:
-  - Tier 1 (GPT-4o): isAd/isSponsored flagged content, threshold >0.70
-  - Tier 2 (GPT-4o-mini): non-flagged content, threshold >0.85
-- Uses Vercel AI SDK with zod schema for structured output
-- Returns: isPromotion, brand, confidence, signals, tier
-- Added zod dependency
-- Commit: c45b5fa
+### Next Tasks
 
-### Step 4: Create Search Endpoint - COMPLETED
-- Added POST /api/search endpoint to src/index.ts
-- Accepts { keyword: string } in request body
-- Calls Apify service to fetch TikTok videos
-- Classifies each video using the classifier service
-- Returns structured response with all required fields
-- Added console logging for debugging
-- Commit: f380ba1
-
-### Bugfix: Apify client initialization
-- Fixed lazy initialization of ApifyClient
-- Env vars now read at call time, not module load time
-- Commit: 46e425a
-
-### Bugfix: Env loading and isPromotion field
-- Added dotenv to load .env for server-side code
-- Fixed searchSection to '/video' (valid Apify value)
-- Added isPromotion as source of truth (isAd OR isSponsored OR classifier)
-- Commit: bad46a1
-
-## MVP IMPLEMENTATION COMPLETE
-
-### Testing
-Run: `bun run dev`
-Test: `curl -X POST http://localhost:3000/api/search -H "Content-Type: application/json" -d '{"keyword": "how to add captions"}'`
+3. Create keyword-search-history service
+4. Create brand-explorer-history service
+5. Modify POST /api/search to use DB-first approach
+6. Modify POST /api/brand-explorer to use DB-first approach
+7. Create GET /api/searches endpoint
+8. Create GET /api/searches/:id endpoint
+9. Create POST /api/searches/:id/refresh endpoint

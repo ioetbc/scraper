@@ -8,25 +8,116 @@ generator client {
 }
 
 model User {
-  id        Int      @id @default(autoincrement())
+  id        String   @id @default(cuid())
   createdAt DateTime @default(now())
-  email     String   @unique
-  name      String?
-  role      Role     @default(USER)
-  posts     Post[]
+  searches  Search[]
 }
 
-model Post {
-  id        Int      @id @default(autoincrement())
-  createdAt DateTime @default(now())
-  updatedAt DateTime @updatedAt
-  published Boolean  @default(false)
-  title     String   @db.VarChar(255)
-  author    User     @relation(fields: [authorId], references: [id])
-  authorId  Int
+model Search {
+  id        String     @id @default(cuid())
+  userId    String
+  user      User       @relation(fields: [userId], references: [id])
+  type      SearchType
+  query     String
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  results     SearchResult[]
+  summary     BrandExplorerSummary?
+  influencers BrandExplorerInfluencer[]
+
+  @@unique([userId, type, query])
 }
 
-enum Role {
-  USER
-  ADMIN
+enum SearchType {
+  keyword
+  brand_explorer
+}
+
+model Video {
+  id               String   @id
+  caption          String
+  isAd             Boolean
+  isSponsored      Boolean
+  creatorHandle    String
+  creatorFollowers Int
+  videoUrl         String
+  shopProductUrl   String?
+  createdAt        DateTime @default(now())
+  updatedAt        DateTime @updatedAt
+
+  mentions         VideoMention[]
+  hashtags         VideoHashtag[]
+  stats            VideoStats[]
+  searchResults    SearchResult[]
+  summaries        BrandExplorerSummary[]    @relation("SummaryVideos")
+  influencerVideos BrandExplorerInfluencer[] @relation("InfluencerVideos")
+}
+
+model VideoMention {
+  id      String @id @default(cuid())
+  videoId String
+  video   Video  @relation(fields: [videoId], references: [id])
+  mention String
+}
+
+model VideoHashtag {
+  id      String @id @default(cuid())
+  videoId String
+  video   Video  @relation(fields: [videoId], references: [id])
+  hashtag String
+}
+
+model VideoStats {
+  id         String   @id @default(cuid())
+  videoId    String
+  video      Video    @relation(fields: [videoId], references: [id])
+  likes      Int
+  comments   Int
+  shares     Int
+  views      Int
+  recordedAt DateTime @default(now())
+}
+
+model SearchResult {
+  id          String   @id @default(cuid())
+  searchId    String
+  search      Search   @relation(fields: [searchId], references: [id], onDelete: Cascade)
+  videoId     String
+  video       Video    @relation(fields: [videoId], references: [id])
+  position    Int
+  isPromotion Boolean
+  brand       String?
+  confidence  Float
+  signals     Json
+  tier        Int?
+  error       String?
+  createdAt   DateTime @default(now())
+}
+
+model BrandExplorerSummary {
+  id               String @id @default(cuid())
+  searchId         String @unique
+  search           Search @relation(fields: [searchId], references: [id], onDelete: Cascade)
+  totalVideos      Int
+  totalInfluencers Int
+  totalReach       Int
+
+  videos      Video[]                   @relation("SummaryVideos")
+  influencers BrandExplorerInfluencer[]
+}
+
+model BrandExplorerInfluencer {
+  id         String               @id @default(cuid())
+  searchId   String
+  search     Search               @relation(fields: [searchId], references: [id], onDelete: Cascade)
+  summaryId  String
+  summary    BrandExplorerSummary @relation(fields: [summaryId], references: [id], onDelete: Cascade)
+  handle     String
+  followers  Int
+  videoCount Int
+  totalViews Int
+  totalLikes Int
+
+  videos Video[] @relation("InfluencerVideos")
 }
