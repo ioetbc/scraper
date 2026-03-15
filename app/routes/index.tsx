@@ -1,10 +1,12 @@
 import { createFileRoute } from '@tanstack/react-router'
 import { useState, useMemo } from 'react'
+import { useQueryClient } from '@tanstack/react-query'
 import { SearchInput, type SearchMode } from '#/components/SearchInput'
 import { Sidebar } from '#/components/Sidebar'
 import { DataGrid } from '#/components/DataGrid'
 import { FilterTabs } from '#/components/FilterTabs'
-import { useSearchHistory } from '#/hooks/useSearchHistory'
+import { useHistoryQuery } from '#/hooks/useHistoryQuery'
+import { useHistoryDetailQuery } from '#/hooks/useHistoryDetailQuery'
 import { useSearchMutation } from '#/hooks/useSearchMutation'
 import { useBrandExplorerMutation } from '#/hooks/useBrandExplorerMutation'
 import type { SearchResult, BrandExplorerResponse } from '#/types'
@@ -33,10 +35,18 @@ function transformBrandResults(data: BrandExplorerResponse): SearchResult[] {
 }
 
 function HomePage() {
+  const queryClient = useQueryClient()
   const [activeFilter, setActiveFilter] = useState('all')
   const [searchMode, setSearchMode] = useState<SearchMode>('query')
-  const [currentSearch, setCurrentSearch] = useState<{ keyword: string; type: SearchMode } | null>(null)
-  const { history, addToHistory, clearHistory, removeFromHistory } = useSearchHistory()
+  const [currentSearchId, setCurrentSearchId] = useState<string | null>(null)
+  const [currentSearchType, setCurrentSearchType] = useState<'keyword' | 'brand_explorer' | null>(null)
+
+  // Fetch history from API
+  const { data: historyData, isLoading: isHistoryLoading } = useHistoryQuery()
+  const history = historyData?.searches ?? []
+
+  // Fetch results for selected search
+  const { data: historyDetail, isLoading: isDetailLoading } = useHistoryDetailQuery(currentSearchId)
 
   const {
     mutate: search,
@@ -44,9 +54,11 @@ function HomePage() {
     isPending: isSearchPending,
     error: searchError,
   } = useSearchMutation({
-    onSuccess: (result, keyword) => {
-      addToHistory(keyword, result.results.length, 'query')
-      setCurrentSearch({ keyword, type: 'query' })
+    onSuccess: (result) => {
+      // Invalidate history to refresh the list
+      queryClient.invalidateQueries({ queryKey: ['history'] })
+      setCurrentSearchId(result.searchId)
+      setCurrentSearchType('keyword')
     },
   })
 
@@ -56,27 +68,49 @@ function HomePage() {
     isPending: isBrandPending,
     error: brandError,
   } = useBrandExplorerMutation({
-    onSuccess: (result, handle) => {
-      addToHistory(handle, result.summary.totalVideos, 'brand')
-      setCurrentSearch({ keyword: handle, type: 'brand' })
+    onSuccess: (result) => {
+      // Invalidate history to refresh the list
+      queryClient.invalidateQueries({ queryKey: ['history'] })
+      setCurrentSearchId(result.searchId)
+      setCurrentSearchType('brand_explorer')
     },
   })
 
-  const isPending = isSearchPending || isBrandPending
+  const isPending = isSearchPending || isBrandPending || isDetailLoading
   const error = searchError || brandError
 
+  // Get current search query for display
+  const currentSearch = history.find((s) => s.id === currentSearchId)
+  const keyword = currentSearch?.query ?? null
+
   const results = useMemo(() => {
-    if (currentSearch?.type === 'brand' && brandData) {
+    // If we just ran a new search, use that data
+    if (currentSearchType === 'brand_explorer' && brandData) {
       return transformBrandResults(brandData)
     }
-    return searchData?.results ?? []
-  }, [currentSearch, brandData, searchData])
+    if (currentSearchType === 'keyword' && searchData) {
+      return searchData.results
+    }
 
-  const keyword = currentSearch?.keyword ?? null
+    // Otherwise, use data from history detail query
+    if (historyDetail) {
+      if (historyDetail.type === 'keyword') {
+        return historyDetail.results
+      }
+      if (historyDetail.type === 'brand_explorer') {
+        return transformBrandResults(historyDetail.data)
+      }
+    }
+
+    return []
+  }, [currentSearchType, brandData, searchData, historyDetail])
 
   const handleSearch = (searchTerm: string, mode: SearchMode) => {
     setActiveFilter('all')
     setSearchMode(mode)
+    // Clear current selection so we show fresh results
+    setCurrentSearchId(null)
+    setCurrentSearchType(null)
     if (mode === 'brand') {
       exploreBrand(searchTerm)
     } else {
@@ -84,9 +118,14 @@ function HomePage() {
     }
   }
 
-  const handleSelectFromHistory = (term: string, type: 'query' | 'brand') => {
-    setSearchMode(type)
-    handleSearch(term, type)
+  const handleSelectFromHistory = (searchId: string) => {
+    const selectedSearch = history.find((s) => s.id === searchId)
+    if (selectedSearch) {
+      setActiveFilter('all')
+      setSearchMode(selectedSearch.type === 'brand_explorer' ? 'brand' : 'query')
+      setCurrentSearchId(searchId)
+      setCurrentSearchType(selectedSearch.type)
+    }
   }
 
   const filteredResults = useMemo(() => {
@@ -116,11 +155,9 @@ function HomePage() {
     <div className="flex h-screen bg-white">
       <Sidebar
         history={history}
+        isLoading={isHistoryLoading}
         onSelectSearch={handleSelectFromHistory}
-        onRemoveItem={removeFromHistory}
-        onClearHistory={clearHistory}
-        currentKeyword={keyword}
-        currentType={currentSearch?.type ?? null}
+        currentSearchId={currentSearchId}
       />
 
       <main className="flex-1 flex flex-col overflow-hidden">

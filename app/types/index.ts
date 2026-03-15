@@ -20,6 +20,8 @@ export type SearchResult = {
 
 export type SearchResponse = {
   keyword: string
+  searchId: string
+  cached: boolean
   results: SearchResult[]
 }
 
@@ -48,6 +50,8 @@ export type BrandExplorerInfluencer = {
 
 export type BrandExplorerResponse = {
   brand: string
+  searchId: string
+  cached: boolean
   summary: {
     totalVideos: number
     totalInfluencers: number
@@ -55,4 +59,22 @@ export type BrandExplorerResponse = {
   }
   influencers: BrandExplorerInfluencer[]
   videos: BrandExplorerVideo[]
+}
+
+export type HistorySearchItem = {
+  id: string
+  type: 'keyword' | 'brand_explorer'
+  query: string
+  createdAt: string
+  updatedAt: string
+  resultCount: number
+  summary: {
+    totalVideos: number
+    totalInfluencers: number
+    totalReach: number
+  } | null
+}
+
+export type HistoryResponse = {
+  searches: HistorySearchItem[]
 }
