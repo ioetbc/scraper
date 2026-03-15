@@ -1,26 +1,51 @@
 {
-  "name": "hono-vite-jsx",
+  "name": "habitz",
   "type": "module",
+  "imports": {
+    "#/*": "./app/*"
+  },
   "scripts": {
-    "dev": "vite",
-    "build": "vite build --mode client && vite build"
+    "dev": "concurrently \"vite dev\" \"bun run --watch server/server.ts\"",
+    "dev:frontend": "vite dev",
+    "dev:server": "bun run --watch server/server.ts",
+    "build": "vite build",
+    "preview": "vite preview"
   },
   "dependencies": {
     "@ai-sdk/openai": "^3.0.41",
+    "@logtape/logtape": "^2.0.4",
     "@prisma/adapter-pg": "^7.3.0",
     "@prisma/client": "^7.3.0",
+    "@tailwindcss/vite": "^4.1.18",
+    "@tanstack/react-devtools": "latest",
+    "@tanstack/react-query": "^5.90.0",
+    "@tanstack/react-router": "latest",
+    "@tanstack/react-router-devtools": "latest",
+    "@tanstack/react-router-ssr-query": "latest",
+    "@tanstack/react-start": "latest",
+    "@tanstack/react-table": "^8.21.3",
+    "@tanstack/router-plugin": "^1.132.0",
     "ai": "^6.0.116",
     "apify-client": "^2.22.2",
     "dotenv": "^17.3.1",
     "hono": "^4.9.7",
     "pg": "^8.18.0",
     "prisma": "^7.3.0",
-    "typescript": "^5.9.3",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "tailwindcss": "^4.1.18",
     "zod": "^4.3.6"
   },
   "devDependencies": {
-    "@hono/vite-dev-server": "^0.17.0",
-    "@types/node": "^25.2.0",
-    "vite": "^5.4.2"
+    "@tanstack/devtools-vite": "latest",
+    "@tanstack/react-query-devtools": "^5.90.0",
+    "@types/node": "^22.10.2",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "^5.1.4",
+    "concurrently": "^9.1.0",
+    "typescript": "^5.7.2",
+    "vite": "^7.3.1",
+    "vite-tsconfig-paths": "^5.1.4"
   }
 }

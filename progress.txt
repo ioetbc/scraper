@@ -35,6 +35,12 @@
 - Env vars now read at call time, not module load time
 - Commit: 46e425a
 
+### Bugfix: Env loading and isPromotion field
+- Added dotenv to load .env for server-side code
+- Fixed searchSection to '/video' (valid Apify value)
+- Added isPromotion as source of truth (isAd OR isSponsored OR classifier)
+- Commit: bad46a1
+
 ## MVP IMPLEMENTATION COMPLETE
 
 ### Testing

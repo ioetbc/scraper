@@ -1,6 +1,7 @@
 {
   "rules": {
     "exports": "off",
-    "types": "off"
+    "types": "off",
+    "imports": "off"
   }
 }
