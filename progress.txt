@@ -11,12 +11,17 @@
 2. **Keyword Search History Service** (Task 3)
    - Created server/services/keyword-search-history/ with types, implementation, and index
    - Implemented: findKeywordSearch, saveKeywordSearch, refreshKeywordSearch, getKeywordSearchResults
-   - Uses connectOrCreate for placeholder user (no separate ensurePlaceholderUser needed)
+   - Uses connectOrCreate for placeholder user
    - Handles video upsert and stats snapshot creation
+
+3. **Brand Explorer History Service** (Task 4)
+   - Created server/services/brand-explorer-history/ with types, implementation, and index
+   - Implemented: findBrandExplorerSearch, saveBrandExplorerSearch, refreshBrandExplorerSearch, getBrandExplorerResults
+   - Handles summary, influencers, and video relationships
+   - Creates stats snapshots for historical tracking
 
 ### Next Tasks
 
-4. Create brand-explorer-history service
 5. Modify POST /api/search to use DB-first approach
 6. Modify POST /api/brand-explorer to use DB-first approach
 7. Create GET /api/searches endpoint
