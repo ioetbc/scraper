@@ -4,6 +4,12 @@ import { searchTikTok, ApifyError } from './services/apify'
 import { classifyVideo } from './services/classifier'
 import { exploreBrand, BrandExplorerError } from './services/brand-explorer'
 import { searchLogger, brandExplorerLogger } from './logger'
+import {
+  findKeywordSearch,
+  saveKeywordSearch,
+  getKeywordSearchResults,
+  type KeywordSearchResult,
+} from './services/keyword-search-history'
 
 const app = new Hono()
   .basePath('/api')
@@ -24,76 +30,112 @@ const app = new Hono()
         return c.json({ error: 'keyword is required' }, 400)
       }
 
-      // Fetch videos from TikTok via Apify
+      // DB-first: Check if we have cached results
+      const existingSearch = await findKeywordSearch(keyword)
+
+      if (existingSearch) {
+        const savedResults = await getKeywordSearchResults(existingSearch.id)
+        const durationMs = Math.round(performance.now() - startTime)
+
+        searchLogger.info("Search completed (cached)", {
+          requestId,
+          keyword,
+          statusCode: 200,
+          durationMs,
+          videoCount: savedResults.length,
+          cached: true,
+          searchId: existingSearch.id,
+        })
+
+        return c.json({
+          keyword,
+          searchId: existingSearch.id,
+          cached: true,
+          results: savedResults.map((r) => ({
+            position: r.position + 1,
+            creator: r.video.creator,
+            caption: r.video.caption,
+            videoUrl: r.video.videoUrl,
+            isPromotion: r.isPromotion,
+            isAd: r.video.isAd,
+            isSponsored: r.video.isSponsored,
+            brand: r.brand,
+            confidence: r.confidence,
+            signals: r.signals,
+            tier: r.tier,
+            error: r.error,
+          })),
+        })
+      }
+
+      // Not cached: Fetch videos from TikTok via Apify
       const videos = await searchTikTok(keyword)
 
       // Classify each video for brand promotion
       let classificationErrors = 0
-      const results = await Promise.all(
-        videos.map(async (video, index) => {
-          try {
-            const classification = await classifyVideo({
-              caption: video.caption,
-              mentions: video.mentions,
-              hashtags: video.hashtags,
-              isAd: video.isAd,
-              isSponsored: video.isSponsored,
-            })
+      const classifiedResults: KeywordSearchResult[] = []
 
-            // Source of truth: promotion if platform flags it OR classifier deems it
-            const isPromotion = video.isAd || video.isSponsored || classification.isPromotion
+      for (const video of videos) {
+        try {
+          const classification = await classifyVideo({
+            caption: video.caption,
+            mentions: video.mentions,
+            hashtags: video.hashtags,
+            isAd: video.isAd,
+            isSponsored: video.isSponsored,
+          })
 
-            // Determine brand - use classifier result, fallback to shop product, then NOT_FOUND
-            let brand = classification.brand
+          classifiedResults.push({
+            video,
+            classification,
+          })
+        } catch {
+          classificationErrors++
+          classifiedResults.push({
+            video,
+            classification: null,
+            error: 'Classification failed',
+          })
+        }
+      }
 
-            if (isPromotion && !brand) {
-              if (video.shopProductUrl) {
-                brand = extractBrandFromShopUrl(video.shopProductUrl)
-              }
-              if (!brand) {
-                brand = 'NOT_FOUND'
-              }
-            }
+      // Save to database
+      const savedSearch = await saveKeywordSearch(keyword, classifiedResults)
 
-            return {
-              position: index + 1,
-              creator: video.creator,
-              caption: video.caption,
-              videoUrl: video.videoUrl,
-              isPromotion,
-              isAd: video.isAd,
-              isSponsored: video.isSponsored,
-              brand,
-              confidence: classification.confidence,
-              signals: classification.signals,
-              tier: classification.tier,
-            }
-          } catch {
-            classificationErrors++
-            // Return video with classification error - don't fail the whole search
-            return {
-              position: index + 1,
-              creator: video.creator,
-              caption: video.caption,
-              videoUrl: video.videoUrl,
-              isPromotion: video.isAd || video.isSponsored,
-              isAd: video.isAd,
-              isSponsored: video.isSponsored,
-              brand: (video.isAd || video.isSponsored) ? 'NOT_FOUND' : null,
-              confidence: 0,
-              signals: ['classification_error'],
-              tier: null,
-              error: 'Classification failed',
-            }
+      // Build response
+      const results = classifiedResults.map((r, index) => {
+        const isPromotion = r.video.isAd || r.video.isSponsored || (r.classification?.isPromotion ?? false)
+
+        let brand = r.classification?.brand ?? null
+        if (isPromotion && !brand) {
+          if (r.video.shopProductUrl) {
+            brand = extractBrandFromShopUrl(r.video.shopProductUrl)
           }
-        })
-      )
+          if (!brand) {
+            brand = 'NOT_FOUND'
+          }
+        }
+
+        return {
+          position: index + 1,
+          creator: r.video.creator,
+          caption: r.video.caption,
+          videoUrl: r.video.videoUrl,
+          isPromotion,
+          isAd: r.video.isAd,
+          isSponsored: r.video.isSponsored,
+          brand,
+          confidence: r.classification?.confidence ?? 0,
+          signals: r.classification?.signals ?? ['classification_error'],
+          tier: r.classification?.tier ?? null,
+          error: r.error,
+        }
+      })
 
       const durationMs = Math.round(performance.now() - startTime)
       const promotionCount = results.filter(r => r.isPromotion).length
       const brandsFound = [...new Set(results.filter(r => r.brand && r.brand !== 'NOT_FOUND').map(r => r.brand))]
 
-      // Wide event: one comprehensive log per search request
       searchLogger.info("Search completed", {
         requestId,
         keyword,
@@ -109,10 +151,14 @@ const app = new Hono()
         avgConfidence: results.length > 0
           ? Math.round(results.reduce((sum, r) => sum + r.confidence, 0) / results.length * 100) / 100
           : 0,
+        cached: false,
+        searchId: savedSearch.id,
       })
 
       return c.json({
         keyword,
+        searchId: savedSearch.id,
+        cached: false,
         results,
       })
     } catch (error) {
