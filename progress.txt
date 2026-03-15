@@ -5,13 +5,17 @@
 1. **Prisma Schema & Client Setup** (Task 1-2)
    - Created full Prisma schema with all models: User, Search, Video, VideoMention, VideoHashtag, VideoStats, SearchResult, BrandExplorerSummary, BrandExplorerInfluencer
    - Fixed prisma.config.ts paths for Prisma 7 compatibility
-   - Created Prisma client singleton at server/lib/prisma/
-   - Added placeholder user constant and ensurePlaceholderUser helper
+   - Created Prisma client singleton at server/lib/prisma/ with PrismaPg adapter
    - Pushed schema to Supabase database
+
+2. **Keyword Search History Service** (Task 3)
+   - Created server/services/keyword-search-history/ with types, implementation, and index
+   - Implemented: findKeywordSearch, saveKeywordSearch, refreshKeywordSearch, getKeywordSearchResults
+   - Uses connectOrCreate for placeholder user (no separate ensurePlaceholderUser needed)
+   - Handles video upsert and stats snapshot creation
 
 ### Next Tasks
 
-3. Create keyword-search-history service
 4. Create brand-explorer-history service
 5. Modify POST /api/search to use DB-first approach
 6. Modify POST /api/brand-explorer to use DB-first approach
