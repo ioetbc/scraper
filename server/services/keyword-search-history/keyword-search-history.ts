@@ -1,5 +1,5 @@
 import { prisma, PLACEHOLDER_USER_ID } from "../../lib/prisma";
-import type { KeywordSearchResult, SavedKeywordSearch, SavedKeywordSearchResult } from "./keyword-search-history.types";
+import type { KeywordSearchResult, SavedKeywordSearch, KeywordSearchResultResponse } from "./keyword-search-history.types";
 
 export async function findKeywordSearch(query: string): Promise<SavedKeywordSearch | null> {
   const normalizedQuery = query.toLowerCase();
@@ -52,11 +52,17 @@ export async function saveKeywordSearch(
             const video = await upsertVideo(result.video);
             await createVideoStats(result.video);
 
+            const isPromotion = result.video.isAd || result.video.isSponsored || (result.classification?.isPromotion ?? false);
+            let brand = result.classification?.brand ?? null;
+            if (isPromotion && !brand) {
+              brand = 'NOT_FOUND';
+            }
+
             return {
               videoId: video.id,
               position: index,
-              isPromotion: result.classification?.isPromotion ?? false,
-              brand: result.classification?.brand ?? null,
+              isPromotion,
+              brand,
               confidence: result.classification?.confidence ?? 0,
               signals: result.classification?.signals ?? [],
               tier: result.classification?.tier ?? null,
@@ -134,60 +140,32 @@ export async function refreshKeywordSearch(
 
 export async function getKeywordSearchResults(
   searchId: string
-): Promise<SavedKeywordSearchResult[]> {
+): Promise<KeywordSearchResultResponse[]> {
   const results = await prisma.searchResult.findMany({
     where: { searchId },
     orderBy: { position: "asc" },
     include: {
-      video: {
-        include: {
-          mentions: true,
-          hashtags: true,
-          stats: {
-            orderBy: { recordedAt: "desc" },
-            take: 1,
-          },
-        },
-      },
+      video: true,
     },
   });
 
-  return results.map((result) => {
-    const latestStats = result.video.stats[0];
-
-    return {
-      id: result.id,
-      position: result.position,
-      video: {
-        id: result.video.id,
-        caption: result.video.caption,
-        mentions: result.video.mentions.map((m) => m.mention),
-        hashtags: result.video.hashtags.map((h) => h.hashtag),
-        isAd: result.video.isAd,
-        isSponsored: result.video.isSponsored,
-        creator: {
-          handle: result.video.creatorHandle,
-          followers: result.video.creatorFollowers,
-        },
-        stats: latestStats
-          ? {
-              likes: latestStats.likes,
-              comments: latestStats.comments,
-              shares: latestStats.shares,
-              views: latestStats.views,
-            }
-          : { likes: 0, comments: 0, shares: 0, views: 0 },
-        videoUrl: result.video.videoUrl,
-        shopProductUrl: result.video.shopProductUrl,
-      },
-      isPromotion: result.isPromotion,
-      brand: result.brand,
-      confidence: result.confidence,
-      signals: result.signals as string[],
-      tier: result.tier,
-      error: result.error,
-    };
-  });
+  return results.map((result) => ({
+    position: result.position + 1,
+    creator: {
+      handle: result.video.creatorHandle,
+      followers: result.video.creatorFollowers,
+    },
+    caption: result.video.caption,
+    videoUrl: result.video.videoUrl,
+    isPromotion: result.isPromotion,
+    isAd: result.video.isAd,
+    isSponsored: result.video.isSponsored,
+    brand: result.brand,
+    confidence: result.confidence,
+    signals: result.signals as string[],
+    tier: result.tier as 1 | 2 | null,
+    error: result.error ?? undefined,
+  }));
 }
 
 async function upsertVideo(video: KeywordSearchResult["video"]) {

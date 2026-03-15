@@ -15,14 +15,18 @@ export type SavedKeywordSearch = {
   resultCount: number;
 };
 
-export type SavedKeywordSearchResult = {
-  id: string;
+// API response format - single source of truth
+export type KeywordSearchResultResponse = {
   position: number;
-  video: TikTokVideo;
+  creator: { handle: string; followers: number };
+  caption: string;
+  videoUrl: string;
   isPromotion: boolean;
+  isAd: boolean;
+  isSponsored: boolean;
   brand: string | null;
   confidence: number;
   signals: string[];
-  tier: number | null;
-  error: string | null;
+  tier: 1 | 2 | null;
+  error?: string;
 };

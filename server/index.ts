@@ -40,7 +40,7 @@ const app = new Hono()
       const existingSearch = await findKeywordSearch(keyword)
 
       if (existingSearch) {
-        const savedResults = await getKeywordSearchResults(existingSearch.id)
+        const results = await getKeywordSearchResults(existingSearch.id)
         const durationMs = Math.round(performance.now() - startTime)
 
         searchLogger.info("Search completed (cached)", {
@@ -48,7 +48,7 @@ const app = new Hono()
           keyword,
           statusCode: 200,
           durationMs,
-          videoCount: savedResults.length,
+          videoCount: results.length,
           cached: true,
           searchId: existingSearch.id,
         })
@@ -57,20 +57,7 @@ const app = new Hono()
           keyword,
           searchId: existingSearch.id,
           cached: true,
-          results: savedResults.map((r) => ({
-            position: r.position + 1,
-            creator: r.video.creator,
-            caption: r.video.caption,
-            videoUrl: r.video.videoUrl,
-            isPromotion: r.isPromotion,
-            isAd: r.video.isAd,
-            isSponsored: r.video.isSponsored,
-            brand: r.brand,
-            confidence: r.confidence,
-            signals: r.signals,
-            tier: r.tier,
-            error: r.error,
-          })),
+          results,
         })
       }
 
@@ -108,39 +95,10 @@ const app = new Hono()
       // Save to database
       const savedSearch = await saveKeywordSearch(keyword, classifiedResults)
 
-      // Build response
-      const results = classifiedResults.map((r, index) => {
-        const isPromotion = r.video.isAd || r.video.isSponsored || (r.classification?.isPromotion ?? false)
-
-        let brand = r.classification?.brand ?? null
-        if (isPromotion && !brand) {
-          if (r.video.shopProductUrl) {
-            brand = extractBrandFromShopUrl(r.video.shopProductUrl)
-          }
-          if (!brand) {
-            brand = 'NOT_FOUND'
-          }
-        }
-
-        return {
-          position: index + 1,
-          creator: r.video.creator,
-          caption: r.video.caption,
-          videoUrl: r.video.videoUrl,
-          isPromotion,
-          isAd: r.video.isAd,
-          isSponsored: r.video.isSponsored,
-          brand,
-          confidence: r.classification?.confidence ?? 0,
-          signals: r.classification?.signals ?? ['classification_error'],
-          tier: r.classification?.tier ?? null,
-          error: r.error,
-        }
-      })
+      // Fetch from DB to ensure consistent format
+      const results = await getKeywordSearchResults(savedSearch.id)
 
       const durationMs = Math.round(performance.now() - startTime)
-      const promotionCount = results.filter(r => r.isPromotion).length
-      const brandsFound = [...new Set(results.filter(r => r.brand && r.brand !== 'NOT_FOUND').map(r => r.brand))]
 
       searchLogger.info("Search completed", {
         requestId,
@@ -148,15 +106,7 @@ const app = new Hono()
         statusCode: 200,
         durationMs,
         videoCount: videos.length,
-        promotionCount,
-        brandsFound,
-        brandCount: brandsFound.length,
         classificationErrors,
-        tier1Count: results.filter(r => r.tier === 1).length,
-        tier2Count: results.filter(r => r.tier === 2).length,
-        avgConfidence: results.length > 0
-          ? Math.round(results.reduce((sum, r) => sum + r.confidence, 0) / results.length * 100) / 100
-          : 0,
         cached: false,
         searchId: savedSearch.id,
       })
@@ -349,26 +299,6 @@ const app = new Hono()
       return c.json({ error: 'Failed to fetch search results' }, 500)
     }
   })
-
-function extractBrandFromShopUrl(url: string): string | null {
-  try {
-    // TikTok shop URLs often contain seller/brand info
-    // Example: https://www.tiktok.com/view/product/123?shop_id=xxx
-    const urlObj = new URL(url)
-    const shopId = urlObj.searchParams.get('shop_id')
-    if (shopId) {
-      return `shop:${shopId}`
-    }
-    // Try to extract from path
-    const pathMatch = url.match(/\/(@[\w.]+)\//)
-    if (pathMatch) {
-      return pathMatch[1]
-    }
-    return null
-  } catch {
-    return null
-  }
-}
 
 export type AppType = typeof app
 export default app

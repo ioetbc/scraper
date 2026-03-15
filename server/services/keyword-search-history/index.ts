@@ -8,5 +8,5 @@ export {
 export type {
   KeywordSearchResult,
   SavedKeywordSearch,
-  SavedKeywordSearchResult,
+  KeywordSearchResultResponse,
 } from "./keyword-search-history.types";

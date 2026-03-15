@@ -1,6 +1,6 @@
 #!/bin/bash
 
-claude --permission-mode acceptEdits "@mvp.md @progress.txt \
+claude --permission-mode acceptEdits "@prd-search-persistence.md @progress.txt \
 1. Read the PRD and progress file. \
 2. Find the next incomplete task and implement it. \
 3. Commit your changes. \
