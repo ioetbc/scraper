@@ -43,6 +43,27 @@
    - Handles both keyword and brand explorer types
    - Delegates to service functions for proper response format
 
-### Next Tasks
+8. **Create POST /api/history/:id/refresh endpoint** (Task 9)
+   - Looks up search by ID to determine type (keyword or brand_explorer)
+   - Re-runs Apify search + classification for keyword searches
+   - Re-runs brand exploration for brand explorer searches
+   - Uses refreshKeywordSearch/refreshBrandExplorerSearch to update DB
+   - Returns fresh results in same format as original endpoints
+   - Proper error handling for Apify, BrandExplorer, and internal errors
 
-9. Create POST /api/history/:id/refresh endpoint
+9. **Frontend Integration** (Task 10)
+   - Created useHistoryQuery hook to fetch search history from GET /api/history
+   - Created useHistoryDetailQuery hook to load results by search ID
+   - Created useRefreshMutation hook for POST /api/history/:id/refresh
+   - Updated Sidebar component to use API-backed history with loading state
+   - Updated index.tsx to use searchId for loading cached results
+   - Added searchId and cached fields to SearchResponse and BrandExplorerResponse types
+   - Replaced localStorage-based history with persistent database storage
+
+### Implementation Complete
+
+All tasks from the PRD have been implemented:
+- Backend: Database schema, services, and API endpoints
+- Frontend: Hooks and components wired to use the new API
+
+The old useSearchHistory hook (localStorage) can be removed if no longer needed.
