@@ -33,8 +33,12 @@
    - Returns `searchId` in response for future reference
    - Fixed route path (was `/api/api/brand-explorer`, now `/api/brand-explorer`)
 
+6. **Create GET /api/history endpoint** (Task 7)
+   - Returns list of all searches for current user
+   - Includes: id, type, query, createdAt, updatedAt, resultCount, summary
+   - Ordered by updatedAt descending (most recent first)
+
 ### Next Tasks
 
-7. Create GET /api/searches endpoint
-8. Create GET /api/searches/:id endpoint
-9. Create POST /api/searches/:id/refresh endpoint
+8. Create GET /api/history/:id endpoint
+9. Create POST /api/history/:id/refresh endpoint

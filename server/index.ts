@@ -15,6 +15,7 @@ import {
   saveBrandExplorerSearch,
   getBrandExplorerResults,
 } from './services/brand-explorer-history'
+import { prisma, PLACEHOLDER_USER_ID } from './lib/prisma'
 
 const app = new Hono()
   .basePath('/api')
@@ -282,6 +283,45 @@ const app = new Hono()
         error: error instanceof Error ? error.message : String(error),
       })
       return c.json({ error: 'Internal server error' }, 500)
+    }
+  })
+  .get('/history', async (c) => {
+    try {
+      const searches = await prisma.search.findMany({
+        where: { userId: PLACEHOLDER_USER_ID },
+        orderBy: { updatedAt: 'desc' },
+        include: {
+          _count: {
+            select: { results: true },
+          },
+          summary: {
+            select: {
+              totalVideos: true,
+              totalInfluencers: true,
+              totalReach: true,
+            },
+          },
+        },
+      })
+
+      return c.json({
+        searches: searches.map((search) => ({
+          id: search.id,
+          type: search.type,
+          query: search.query,
+          createdAt: search.createdAt,
+          updatedAt: search.updatedAt,
+          resultCount: search.type === 'keyword'
+            ? search._count.results
+            : search.summary?.totalVideos ?? 0,
+          summary: search.summary ?? null,
+        })),
+      })
+    } catch (error) {
+      searchLogger.error("Failed to fetch searches", {
+        error: error instanceof Error ? error.message : String(error),
+      })
+      return c.json({ error: 'Failed to fetch searches' }, 500)
     }
   })
 
