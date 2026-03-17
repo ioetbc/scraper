@@ -1,9 +1,11 @@
 import type { Column } from '@tanstack/react-table'
-import type { SearchResult } from '#/types'
+import type { SearchResultItem } from '#/types'
 
 interface ColumnFilterProps {
-  column: Column<SearchResult, unknown>
+  column: Column<SearchResultItem, unknown>
 }
+
+const inputStyles = 'h-7 px-2 text-xs border border-gray-200 rounded-md focus:outline-none focus:ring-1 focus:ring-gray-400'
 
 export function ColumnFilter({ column }: ColumnFilterProps) {
   const columnFilterValue = column.getFilterValue()
@@ -22,7 +24,7 @@ export function ColumnFilter({ column }: ColumnFilterProps) {
             ])
           }
           placeholder="Min"
-          className="w-16 px-2 py-1 text-xs border border-gray-300 rounded"
+          className={`w-16 ${inputStyles}`}
         />
         <input
           type="number"
@@ -34,7 +36,7 @@ export function ColumnFilter({ column }: ColumnFilterProps) {
             ])
           }
           placeholder="Max"
-          className="w-16 px-2 py-1 text-xs border border-gray-300 rounded"
+          className={`w-16 ${inputStyles}`}
         />
       </div>
     )
@@ -47,7 +49,7 @@ export function ColumnFilter({ column }: ColumnFilterProps) {
         onChange={(e) =>
           column.setFilterValue(e.target.value === '' ? undefined : e.target.value)
         }
-        className="w-full px-2 py-1 text-xs border border-gray-300 rounded"
+        className={`w-full ${inputStyles}`}
       >
         <option value="">All</option>
         <option value="true">Yes</option>
@@ -63,7 +65,7 @@ export function ColumnFilter({ column }: ColumnFilterProps) {
         onChange={(e) =>
           column.setFilterValue(e.target.value === '' ? undefined : e.target.value)
         }
-        className="w-full px-2 py-1 text-xs border border-gray-300 rounded"
+        className={`w-full ${inputStyles}`}
       >
         <option value="">All</option>
         <option value="1">Tier 1</option>
@@ -78,7 +80,7 @@ export function ColumnFilter({ column }: ColumnFilterProps) {
       value={(columnFilterValue as string) ?? ''}
       onChange={(e) => column.setFilterValue(e.target.value || undefined)}
       placeholder="Filter..."
-      className="w-full px-2 py-1 text-xs border border-gray-300 rounded"
+      className={`w-full ${inputStyles}`}
     />
   )
 }
