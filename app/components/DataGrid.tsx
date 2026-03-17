@@ -9,9 +9,41 @@ import {
   type SortingState,
   type ColumnFiltersState,
   type FilterFn,
+  type RowSelectionState,
 } from '@tanstack/react-table'
-import type { SearchResult } from '#/types'
+import type { SearchResultItem } from '#/types'
 import { ColumnFilter } from './ColumnFilter'
+
+function BooleanStatusCell({ value }: { value: boolean | null }) {
+  if (value) {
+    return (
+      <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+        <path
+          d="M13.5 4.5L6 12L2.5 8.5"
+          stroke="#10B981"
+          strokeWidth="2"
+          strokeLinecap="round"
+          strokeLinejoin="round"
+        />
+      </svg>
+    )
+  }
+  return (
+    <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+      <path
+        d="M13.5 4.5L6 12L2.5 8.5"
+        stroke="#D1D5DB"
+        strokeWidth="2"
+        strokeLinecap="round"
+        strokeLinejoin="round"
+      />
+    </svg>
+  )
+}
+
+function EmptyCell() {
+  return <span className="empty-cell">—</span>
+}
 
 declare module '@tanstack/react-table' {
   interface ColumnMeta<TData, TValue> {
@@ -20,19 +52,19 @@ declare module '@tanstack/react-table' {
 }
 
 interface DataGridProps {
-  data: SearchResult[]
+  data: SearchResultItem[]
   keyword: string | null
 }
 
-const columnHelper = createColumnHelper<SearchResult>()
+const columnHelper = createColumnHelper<SearchResultItem>()
 
-const booleanFilter: FilterFn<SearchResult> = (row, columnId, filterValue) => {
+const booleanFilter: FilterFn<SearchResultItem> = (row, columnId, filterValue) => {
   if (filterValue === undefined || filterValue === '') return true
   const value = row.getValue(columnId)
   return String(value) === filterValue
 }
 
-const rangeFilter: FilterFn<SearchResult> = (row, columnId, filterValue) => {
+const rangeFilter: FilterFn<SearchResultItem> = (row, columnId, filterValue) => {
   const [min, max] = (filterValue as [number, number]) ?? []
   const value = row.getValue<number>(columnId)
   if (min !== undefined && value < min) return false
@@ -44,9 +76,38 @@ export function DataGrid({ data, keyword }: DataGridProps) {
   const [sorting, setSorting] = useState<SortingState>([])
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([])
   const [globalFilter, setGlobalFilter] = useState('')
+  const [rowSelection, setRowSelection] = useState<RowSelectionState>({})
 
   const columns = useMemo(
     () => [
+      columnHelper.display({
+        id: 'rowNumber',
+        header: '',
+        cell: (info) => (
+          <span className="row-number">{info.row.index + 1}</span>
+        ),
+        size: 40,
+      }),
+      columnHelper.display({
+        id: 'select',
+        header: ({ table }) => (
+          <input
+            type="checkbox"
+            className="checkbox-teal"
+            checked={table.getIsAllRowsSelected()}
+            onChange={table.getToggleAllRowsSelectedHandler()}
+          />
+        ),
+        cell: ({ row }) => (
+          <input
+            type="checkbox"
+            className="checkbox-teal"
+            checked={row.getIsSelected()}
+            onChange={row.getToggleSelectedHandler()}
+          />
+        ),
+        size: 40,
+      }),
       columnHelper.accessor('position', {
         header: '#',
         cell: (info) => info.getValue(),
@@ -60,7 +121,6 @@ export function DataGrid({ data, keyword }: DataGridProps) {
             href={`https://tiktok.com/@${info.getValue()}`}
             target="_blank"
             rel="noopener noreferrer"
-            className="text-blue-600 hover:underline"
           >
             @{info.getValue()}
           </a>
@@ -90,51 +150,21 @@ export function DataGrid({ data, keyword }: DataGridProps) {
       }),
       columnHelper.accessor('isPromotion', {
         header: 'Promotion',
-        cell: (info) => (
-          <span
-            className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
-              info.getValue()
-                ? 'bg-green-100 text-green-800'
-                : 'bg-gray-100 text-gray-600'
-            }`}
-          >
-            {info.getValue() ? 'Yes' : 'No'}
-          </span>
-        ),
+        cell: (info) => <BooleanStatusCell value={info.getValue()} />,
         meta: { filterVariant: 'boolean' },
         filterFn: booleanFilter,
         size: 90,
       }),
       columnHelper.accessor('isAd', {
         header: 'Ad',
-        cell: (info) => (
-          <span
-            className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
-              info.getValue()
-                ? 'bg-red-100 text-red-800'
-                : 'bg-gray-100 text-gray-600'
-            }`}
-          >
-            {info.getValue() ? 'Yes' : 'No'}
-          </span>
-        ),
+        cell: (info) => <BooleanStatusCell value={info.getValue()} />,
         meta: { filterVariant: 'boolean' },
         filterFn: booleanFilter,
         size: 70,
       }),
       columnHelper.accessor('isSponsored', {
         header: 'Sponsored',
-        cell: (info) => (
-          <span
-            className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
-              info.getValue()
-                ? 'bg-orange-100 text-orange-800'
-                : 'bg-gray-100 text-gray-600'
-            }`}
-          >
-            {info.getValue() ? 'Yes' : 'No'}
-          </span>
-        ),
+        cell: (info) => <BooleanStatusCell value={info.getValue()} />,
         meta: { filterVariant: 'boolean' },
         filterFn: booleanFilter,
         size: 90,
@@ -143,11 +173,7 @@ export function DataGrid({ data, keyword }: DataGridProps) {
         header: 'Brand',
         cell: (info) => {
           const brand = info.getValue()
-          return brand ? (
-            <span className="font-medium text-gray-900">{brand}</span>
-          ) : (
-            <span className="text-gray-400">-</span>
-          )
+          return brand ? <span className="font-medium">{brand}</span> : <EmptyCell />
         },
         size: 120,
       }),
@@ -182,7 +208,7 @@ export function DataGrid({ data, keyword }: DataGridProps) {
         header: 'Signals',
         cell: (info) => {
           const signals = info.getValue()
-          if (signals.length === 0) return <span className="text-gray-400">-</span>
+          if (signals.length === 0) return <EmptyCell />
           return (
             <div className="flex flex-wrap gap-1">
               {signals.slice(0, 3).map((signal, i) => (
@@ -234,10 +260,13 @@ export function DataGrid({ data, keyword }: DataGridProps) {
       sorting,
       columnFilters,
       globalFilter,
+      rowSelection,
     },
     onSortingChange: setSorting,
     onColumnFiltersChange: setColumnFilters,
     onGlobalFilterChange: setGlobalFilter,
+    onRowSelectionChange: setRowSelection,
+    enableRowSelection: true,
     getCoreRowModel: getCoreRowModel(),
     getFilteredRowModel: getFilteredRowModel(),
     getSortedRowModel: getSortedRowModel(),
@@ -327,7 +356,7 @@ export function DataGrid({ data, keyword }: DataGridProps) {
           </thead>
           <tbody>
             {table.getRowModel().rows.map((row) => (
-              <tr key={row.id}>
+              <tr key={row.id} className={row.getIsSelected() ? 'selected' : ''}>
                 {row.getVisibleCells().map((cell) => (
                   <td key={cell.id}>
                     {flexRender(cell.column.columnDef.cell, cell.getContext())}
