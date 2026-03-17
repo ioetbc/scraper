@@ -7,21 +7,73 @@ html, body {
   padding: 0;
 }
 
-/* Table styles */
+/* Table styles - Airtable/Notion inspired design */
 .data-grid {
   @apply w-full border-collapse;
+  background: #FFFFFF;
 }
 
 .data-grid th {
-  @apply sticky top-0 bg-white border-b border-gray-200 text-left text-sm font-medium text-gray-700 px-4 py-3;
+  @apply sticky top-0 bg-white text-left px-4 py-3;
+  border-bottom: 1px solid #E5E7EB;
+  font-size: 13px;
+  font-weight: 500;
+  color: #374151;
 }
 
 .data-grid td {
-  @apply border-b border-gray-100 px-4 py-3 text-sm text-gray-900;
+  @apply px-4;
+  border-bottom: 1px solid #E5E7EB;
+  font-size: 14px;
+  font-weight: 400;
+  color: #1F2937;
+  height: 44px;
 }
 
 .data-grid tr:hover td {
-  @apply bg-gray-50;
+  background: #F9FAFB;
+}
+
+.data-grid tr.selected td {
+  background: #F0FDFA;
+}
+
+/* Row numbers */
+.data-grid .row-number {
+  font-size: 13px;
+  color: #9CA3AF;
+  text-align: right;
+}
+
+/* Links */
+.data-grid a {
+  color: #2563EB;
+  text-decoration: none;
+}
+
+.data-grid a:hover {
+  text-decoration: underline;
+}
+
+/* Empty cells */
+.data-grid .empty-cell {
+  color: #9CA3AF;
+}
+
+/* Teal checkbox styles */
+.checkbox-teal {
+  @apply w-4 h-4 rounded border-gray-300 cursor-pointer;
+  accent-color: #14B8A6;
+}
+
+.checkbox-teal:checked {
+  background-color: #14B8A6;
+  border-color: #14B8A6;
+}
+
+.checkbox-teal:focus {
+  outline: none;
+  box-shadow: 0 0 0 2px rgba(20, 184, 166, 0.2);
 }
 
 /* Scrollbar styling */
