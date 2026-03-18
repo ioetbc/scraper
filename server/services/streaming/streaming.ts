@@ -10,11 +10,18 @@ import type {
 
 // Helper to send a typed SSE event
 async function sendEvent(stream: SSEStreamingApi, event: StreamEvent): Promise<void> {
-  console.log('[SSE Server] Sending event:', event.type)
-  await stream.writeSSE({
-    event: event.type,
-    data: JSON.stringify(event),
-  })
+  const data = JSON.stringify(event)
+  console.log('[SSE Server] Sending event:', event.type, 'length:', data.length)
+  try {
+    await stream.writeSSE({
+      event: event.type,
+      data,
+    })
+    console.log('[SSE Server] Event sent successfully:', event.type)
+  } catch (err) {
+    console.error('[SSE Server] Failed to send event:', event.type, err)
+    throw err
+  }
 }
 
 // Typed event helpers for cleaner streaming code

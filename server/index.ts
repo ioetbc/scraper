@@ -2,7 +2,7 @@ import 'dotenv/config'
 import { Hono } from 'hono'
 import { cors } from 'hono/cors'
 import { streamSSE } from 'hono/streaming'
-import { searchTikTok, ApifyError } from './services/apify'
+import { searchTikTok, searchTikTokStreaming, ApifyError } from './services/apify'
 import {
   sendInit,
   sendVideo,
@@ -20,8 +20,9 @@ import {
   getKeywordSearchData,
   createKeywordSearchRecord,
   finalizeKeywordSearch,
-  classifyVideosStreaming,
+  saveStreamingKeywordResult,
 } from './services/keyword-search-history'
+import { classifyVideo } from './services/classifier'
 import {
   findBrandExplorerSearch,
   saveBrandExplorerSearch,
@@ -56,6 +57,43 @@ const app = new Hono()
     allowMethods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
     allowHeaders: ['Content-Type'],
   }))
+  // Simple SSE test endpoint to verify streaming works
+  .get('/test-sse', async (c) => {
+    return streamSSE(c, async (stream) => {
+      console.log('[SSE Test] Starting test stream')
+
+      // Send test events with delays
+      await stream.writeSSE({
+        event: 'init',
+        data: JSON.stringify({ type: 'init', searchId: 'test-123' }),
+      })
+      console.log('[SSE Test] Sent init event')
+
+      await stream.sleep(500)
+
+      await stream.writeSSE({
+        event: 'video',
+        data: JSON.stringify({ type: 'video', data: { position: 1, caption: 'Test video 1' } }),
+      })
+      console.log('[SSE Test] Sent video event 1')
+
+      await stream.sleep(500)
+
+      await stream.writeSSE({
+        event: 'video',
+        data: JSON.stringify({ type: 'video', data: { position: 2, caption: 'Test video 2' } }),
+      })
+      console.log('[SSE Test] Sent video event 2')
+
+      await stream.sleep(500)
+
+      await stream.writeSSE({
+        event: 'complete',
+        data: JSON.stringify({ type: 'complete', summary: { totalVideos: 2, totalInfluencers: 2, totalReach: 1000 } }),
+      })
+      console.log('[SSE Test] Sent complete event')
+    })
+  })
   .post('/search', async (c) => {
     const requestId = crypto.randomUUID()
     const startTime = performance.now()
@@ -180,34 +218,93 @@ const app = new Hono()
       }
 
       // Not cached - stream results
+      searchLogger.info("Starting SSE stream for keyword search", { requestId, keyword })
+
       return streamSSE(c, async (stream) => {
         // Create search record upfront to get searchId
         const searchId = await createKeywordSearchRecord(keyword)
+        searchLogger.info("Created search record, sending init event", { requestId, searchId })
 
         // Send init event with searchId immediately
         await sendInit(stream, searchId)
+        searchLogger.info("Init event sent", { requestId, searchId })
 
         try {
-          // Fetch videos from TikTok
-          const videos = await searchTikTok(keyword)
+          // Track cumulative stats across all batches
+          const creators = new Set<string>()
+          let totalReach = 0
+          let position = 0
+          let totalFetched = 0
 
-          // Run streaming classification
-          const summary = await classifyVideosStreaming(
-            videos,
-            searchId,
-            {
-              onVideo: async (result, progress) => {
-                await sendVideo(stream, result)
-                await sendProgress(stream, progress.total, progress.completed)
-              },
-              onError: async (videoId, message) => {
-                await sendError(stream, message, videoId)
-              },
+          // Stream videos from Apify and classify as they arrive
+          for await (const videoBatch of searchTikTokStreaming(keyword)) {
+            totalFetched += videoBatch.length
+            searchLogger.info("Processing video batch", {
+              requestId,
+              searchId,
+              batchSize: videoBatch.length,
+              totalFetched,
+            })
+
+            // Classify each video in the batch and stream results
+            for (const video of videoBatch) {
+              try {
+                const classification = await classifyVideo({
+                  caption: video.caption,
+                  mentions: video.mentions,
+                  hashtags: video.hashtags,
+                  isAd: video.isAd,
+                  isSponsored: video.isSponsored,
+                })
+
+                // Save to DB
+                const resultItem = await saveStreamingKeywordResult(
+                  searchId,
+                  video,
+                  classification,
+                  position
+                )
+
+                // Track stats
+                creators.add(video.creator.handle)
+                totalReach += video.creator.followers
+                position++
+
+                // Stream to client
+                await sendVideo(stream, resultItem)
+                await sendProgress(stream, totalFetched, position)
+              } catch (error) {
+                // Save failed result to DB
+                const resultItem = await saveStreamingKeywordResult(
+                  searchId,
+                  video,
+                  null,
+                  position,
+                  "Classification failed"
+                )
+
+                // Track stats even for failed videos
+                creators.add(video.creator.handle)
+                totalReach += video.creator.followers
+                position++
+
+                // Stream to client
+                await sendVideo(stream, resultItem)
+                await sendProgress(stream, totalFetched, position)
+                await sendError(stream, error instanceof Error ? error.message : String(error), video.id)
+              }
             }
-          )
+          }
 
           // Finalize the search in DB
           await finalizeKeywordSearch(searchId)
+
+          // Build final summary
+          const summary = {
+            totalVideos: position,
+            totalInfluencers: creators.size,
+            totalReach,
+          }
 
           // Send complete event
           await sendComplete(stream, summary)
@@ -375,12 +472,16 @@ const app = new Hono()
       }
 
       // Not cached - stream results
+      brandExplorerLogger.info("Starting SSE stream for brand explorer", { requestId, handle })
+
       return streamSSE(c, async (stream) => {
         // Create search record upfront to get searchId
         const searchId = await createBrandExplorerSearchRecord(handle)
+        brandExplorerLogger.info("Created search record, sending init event", { requestId, searchId })
 
         // Send init event with searchId immediately
         await sendInit(stream, searchId)
+        brandExplorerLogger.info("Init event sent", { requestId, searchId })
 
         let position = 0
 

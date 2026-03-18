@@ -142,14 +142,22 @@ export function useStreamingSearch(options?: UseStreamingSearchOptions) {
       setIsPending(true)
       setQuery(searchTerm)
 
-      // In development, connect directly to API server to avoid Vite proxy buffering SSE
-      const apiBase = import.meta.env.DEV ? 'http://localhost:8080' : ''
+      // Always connect directly to API server for streaming to avoid proxy buffering
+      // In production, use relative URL; in dev, bypass Vite's proxy
+      const isLocalDev =
+        typeof window !== 'undefined' &&
+        (window.location.hostname === 'localhost' || window.location.hostname === '127.0.0.1') &&
+        window.location.port !== '8080' // Not already on API server
+      const apiBase = isLocalDev ? 'http://localhost:8080' : ''
       const endpoint =
         mode === 'brand'
           ? `${apiBase}/api/brand-explorer/stream`
           : `${apiBase}/api/search/stream`
 
+      console.log('[SSE] Config:', { isLocalDev, apiBase, endpoint, hostname: window?.location?.hostname, port: window?.location?.port })
+
       try {
+        console.log('[SSE] Making fetch request to:', endpoint)
         const response = await fetch(endpoint, {
           method: 'POST',
           headers: {
@@ -160,6 +168,17 @@ export function useStreamingSearch(options?: UseStreamingSearchOptions) {
           ),
           signal: abortControllerRef.current.signal,
         })
+
+        console.log('[SSE] Fetch response received:', {
+          status: response.status,
+          statusText: response.statusText,
+          ok: response.ok,
+          headers: Object.fromEntries(response.headers.entries()),
+        })
+
+        if (!response.ok) {
+          throw new Error(`HTTP ${response.status}: ${response.statusText}`)
+        }
 
         // Check if we got a cached JSON response instead of SSE stream
         const contentType = response.headers.get('content-type')
@@ -181,6 +200,10 @@ export function useStreamingSearch(options?: UseStreamingSearchOptions) {
         }
 
         // Handle SSE stream
+        const contentTypeForSSE = response.headers.get('content-type')
+        console.log('[SSE] Content-Type:', contentTypeForSSE)
+        console.log('[SSE] Response status:', response.status)
+
         if (!response.body) {
           throw new Error('No response body')
         }
@@ -188,6 +211,7 @@ export function useStreamingSearch(options?: UseStreamingSearchOptions) {
         const reader = response.body.getReader()
         const decoder = new TextDecoder()
         let buffer = ''
+        let eventCount = 0
 
         console.log('[SSE] Starting to read stream...')
 
@@ -195,33 +219,41 @@ export function useStreamingSearch(options?: UseStreamingSearchOptions) {
           const { done, value } = await reader.read()
 
           if (done) {
-            console.log('[SSE] Stream done')
+            console.log('[SSE] Stream done. Total events processed:', eventCount)
+            // Process any remaining buffer content
+            if (buffer.trim()) {
+              console.log('[SSE] Remaining buffer:', buffer)
+            }
             break
           }
 
           const chunk = decoder.decode(value, { stream: true })
-          console.log('[SSE] Received chunk:', chunk.substring(0, 100))
+          console.log('[SSE] Received chunk (length:', chunk.length, '):', chunk.substring(0, 200))
           buffer += chunk
 
-          // Process complete SSE messages
+          // Process complete SSE messages (messages are separated by double newlines)
+          // Split on single newlines and process line by line
           const lines = buffer.split('\n')
           buffer = lines.pop() || '' // Keep incomplete line in buffer
 
           for (const line of lines) {
-            if (line.startsWith('event:')) {
-              // Event type is embedded in the data JSON, so we don't need to track it separately
-            } else if (line.startsWith('data:')) {
-              const data = line.slice(5).trim()
+            const trimmedLine = line.trim()
+            if (!trimmedLine) continue // Skip empty lines
+
+            if (trimmedLine.startsWith('data:')) {
+              const data = trimmedLine.slice(5).trim()
               if (data) {
                 try {
                   const event: StreamEvent = JSON.parse(data)
-                  console.log('[SSE] Parsed event:', event.type)
+                  console.log('[SSE] Parsed event:', event.type, event)
                   handleEvent(event)
-                } catch {
-                  // Skip malformed JSON
+                  eventCount++
+                } catch (parseError) {
+                  console.error('[SSE] Failed to parse event data:', data, parseError)
                 }
               }
             }
+            // event: lines are informational only, we get type from the JSON data
           }
         }
       } catch (err) {
