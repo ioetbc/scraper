@@ -1,95 +1,42 @@
 @import "tailwindcss";
 
-/* Custom styles */
-html, body {
-  height: 100%;
-  margin: 0;
-  padding: 0;
+/* Clean minimal design */
+
+:root {
+  --font-mono: "SF Mono", "Fira Code", "Monaco", "Inconsolata", "Roboto Mono", monospace;
 }
 
-/* Table styles - Airtable/Notion inspired design */
-.data-grid {
-  @apply w-full border-collapse;
-  background: #FFFFFF;
+.font-mono-ui {
+  font-family: var(--font-mono);
 }
 
-.data-grid th {
-  @apply sticky top-0 bg-white text-left px-4 py-3;
-  border-bottom: 1px solid #E5E7EB;
-  font-size: 13px;
-  font-weight: 500;
-  color: #374151;
+/* Checkbox */
+.checkbox-clean {
+  @apply w-3.5 h-3.5 appearance-none border border-gray-300 bg-white cursor-pointer relative rounded-sm;
 }
 
-.data-grid td {
-  @apply px-4;
-  border-bottom: 1px solid #E5E7EB;
-  font-size: 14px;
-  font-weight: 400;
-  color: #1F2937;
-  height: 44px;
+.checkbox-clean:checked {
+  @apply bg-gray-800 border-gray-800;
 }
 
-.data-grid tr:hover td {
-  background: #F9FAFB;
+.checkbox-clean:checked::after {
+  content: "✓";
+  @apply absolute top-1/2 left-1/2 -translate-x-1/2 -translate-y-1/2 text-white text-[10px] font-bold leading-none;
 }
 
-.data-grid tr.selected td {
-  background: #F0FDFA;
+/* Scrollbar */
+::-webkit-scrollbar {
+  @apply w-2 h-2;
 }
 
-/* Row numbers */
-.data-grid .row-number {
-  font-size: 13px;
-  color: #9CA3AF;
-  text-align: right;
+::-webkit-scrollbar-track {
+  @apply bg-gray-50;
 }
 
-/* Links */
-.data-grid a {
-  color: #2563EB;
-  text-decoration: none;
-}
-
-.data-grid a:hover {
-  text-decoration: underline;
-}
-
-/* Empty cells */
-.data-grid .empty-cell {
-  color: #9CA3AF;
-}
-
-/* Teal checkbox styles */
-.checkbox-teal {
-  @apply w-4 h-4 rounded border-gray-300 cursor-pointer;
-  accent-color: #14B8A6;
-}
-
-.checkbox-teal:checked {
-  background-color: #14B8A6;
-  border-color: #14B8A6;
-}
-
-.checkbox-teal:focus {
-  outline: none;
-  box-shadow: 0 0 0 2px rgba(20, 184, 166, 0.2);
-}
-
-/* Scrollbar styling */
-.overflow-auto::-webkit-scrollbar {
-  width: 8px;
-  height: 8px;
-}
-
-.overflow-auto::-webkit-scrollbar-track {
-  @apply bg-gray-100;
-}
-
-.overflow-auto::-webkit-scrollbar-thumb {
+::-webkit-scrollbar-thumb {
   @apply bg-gray-300 rounded;
 }
 
-.overflow-auto::-webkit-scrollbar-thumb:hover {
+::-webkit-scrollbar-thumb:hover {
   @apply bg-gray-400;
 }

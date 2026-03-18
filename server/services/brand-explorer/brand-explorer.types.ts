@@ -18,7 +18,7 @@ export type BrandInfluencer = {
 
 export type BrandVideo = {
   id: string;
-  creator: { handle: string; followers: number };
+  creator: { handle: string; followers: number; avatarUrl: string | null };
   caption: string;
   views: number;
   videoUrl: string;

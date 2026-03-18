@@ -7,6 +7,7 @@ const client = hc<AppType>('/')
 
 interface UseSearchMutationOptions {
   onSuccess?: (data: SearchResponse, keyword: string) => void
+  onError?: (error: Error) => void
 }
 
 export function useSearchMutation(options?: UseSearchMutationOptions) {
@@ -26,6 +27,9 @@ export function useSearchMutation(options?: UseSearchMutationOptions) {
     },
     onSuccess: (data, keyword) => {
       options?.onSuccess?.(data, keyword)
+    },
+    onError: (error) => {
+      options?.onError?.(error as Error)
     },
   })
 }

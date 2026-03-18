@@ -1,23 +1,38 @@
 import 'dotenv/config'
 import { Hono } from 'hono'
 import { searchTikTok, ApifyError } from './services/apify'
-import { classifyVideo } from './services/classifier'
 import { exploreBrand, BrandExplorerError } from './services/brand-explorer'
 import { searchLogger, brandExplorerLogger } from './logger'
 import {
+  classifyVideos,
   findKeywordSearch,
   saveKeywordSearch,
   refreshKeywordSearch,
-  getKeywordSearchResults,
-  type KeywordSearchResult,
+  getKeywordSearchData,
 } from './services/keyword-search-history'
 import {
   findBrandExplorerSearch,
   saveBrandExplorerSearch,
   refreshBrandExplorerSearch,
-  getBrandExplorerResults,
+  getBrandExplorerData,
 } from './services/brand-explorer-history'
 import { prisma, PLACEHOLDER_USER_ID } from './lib/prisma'
+import {
+  formatHistoryListResponse,
+  type HistorySearchItem,
+  type SearchResponse,
+  type SearchData,
+} from './lib/response'
+
+function toSearchResponse(data: SearchData, cached: boolean): SearchResponse {
+  return {
+    query: data.query,
+    searchId: data.id,
+    cached,
+    summary: data.summary,
+    results: data.results,
+  }
+}
 
 const app = new Hono()
   .basePath('/api')
@@ -42,7 +57,7 @@ const app = new Hono()
       const existingSearch = await findKeywordSearch(keyword)
 
       if (existingSearch) {
-        const results = await getKeywordSearchResults(existingSearch.id)
+        const data = await getKeywordSearchData(existingSearch.id)
         const durationMs = Math.round(performance.now() - startTime)
 
         searchLogger.info("Search completed (cached)", {
@@ -50,55 +65,20 @@ const app = new Hono()
           keyword,
           statusCode: 200,
           durationMs,
-          videoCount: results.length,
+          videoCount: data.results.length,
           cached: true,
           searchId: existingSearch.id,
         })
 
-        return c.json({
-          keyword,
-          searchId: existingSearch.id,
-          cached: true,
-          results,
-        })
+        return c.json(toSearchResponse({ id: existingSearch.id, query: keyword, ...data }, true))
       }
 
       // Not cached: Fetch videos from TikTok via Apify
       const videos = await searchTikTok(keyword)
+      const { results: classifiedResults, errorCount } = await classifyVideos(videos)
 
-      // Classify each video for brand promotion
-      let classificationErrors = 0
-      const classifiedResults: KeywordSearchResult[] = []
-
-      for (const video of videos) {
-        try {
-          const classification = await classifyVideo({
-            caption: video.caption,
-            mentions: video.mentions,
-            hashtags: video.hashtags,
-            isAd: video.isAd,
-            isSponsored: video.isSponsored,
-          })
-
-          classifiedResults.push({
-            video,
-            classification,
-          })
-        } catch {
-          classificationErrors++
-          classifiedResults.push({
-            video,
-            classification: null,
-            error: 'Classification failed',
-          })
-        }
-      }
-
-      // Save to database
+      // Save to database - returns data in response format
       const savedSearch = await saveKeywordSearch(keyword, classifiedResults)
-
-      // Fetch from DB to ensure consistent format
-      const results = await getKeywordSearchResults(savedSearch.id)
 
       const durationMs = Math.round(performance.now() - startTime)
 
@@ -108,17 +88,12 @@ const app = new Hono()
         statusCode: 200,
         durationMs,
         videoCount: videos.length,
-        classificationErrors,
+        classificationErrors: errorCount,
         cached: false,
         searchId: savedSearch.id,
       })
 
-      return c.json({
-        keyword,
-        searchId: savedSearch.id,
-        cached: false,
-        results,
-      })
+      return c.json(toSearchResponse(savedSearch, false))
     } catch (error) {
       const durationMs = Math.round(performance.now() - startTime)
 
@@ -164,34 +139,30 @@ const app = new Hono()
       const existingSearch = await findBrandExplorerSearch(handle)
 
       if (existingSearch) {
-        const cachedResult = await getBrandExplorerResults(existingSearch.id)
+        const cachedData = await getBrandExplorerData(existingSearch.id)
         const durationMs = Math.round(performance.now() - startTime)
 
-        if (cachedResult) {
+        if (cachedData) {
           brandExplorerLogger.info("Brand explorer request completed (cached)", {
             requestId,
             handle,
             statusCode: 200,
             durationMs,
-            totalVideos: cachedResult.summary.totalVideos,
-            totalInfluencers: cachedResult.summary.totalInfluencers,
-            totalReach: cachedResult.summary.totalReach,
+            totalVideos: cachedData.summary.totalVideos,
+            totalInfluencers: cachedData.summary.totalInfluencers,
+            totalReach: cachedData.summary.totalReach,
             cached: true,
             searchId: existingSearch.id,
           })
 
-          return c.json({
-            ...cachedResult,
-            searchId: existingSearch.id,
-            cached: true,
-          })
+          return c.json(toSearchResponse({ id: existingSearch.id, query: handle, ...cachedData }, true))
         }
       }
 
       // Not cached: Run brand exploration
       const result = await exploreBrand({ handle })
 
-      // Save to database
+      // Save to database - returns data in response format
       const savedSearch = await saveBrandExplorerSearch(handle, result)
 
       const durationMs = Math.round(performance.now() - startTime)
@@ -208,11 +179,7 @@ const app = new Hono()
         searchId: savedSearch.id,
       })
 
-      return c.json({
-        ...result,
-        searchId: savedSearch.id,
-        cached: false,
-      })
+      return c.json(toSearchResponse(savedSearch, false))
     } catch (error) {
       const durationMs = Math.round(performance.now() - startTime)
 
@@ -256,19 +223,19 @@ const app = new Hono()
         },
       })
 
-      return c.json({
-        searches: searches.map((search) => ({
-          id: search.id,
-          type: search.type,
-          query: search.query,
-          createdAt: search.createdAt,
-          updatedAt: search.updatedAt,
-          resultCount: search.type === 'keyword'
-            ? search._count.results
-            : search.summary?.totalVideos ?? 0,
-          summary: search.summary ?? null,
-        })),
-      })
+      const items: HistorySearchItem[] = searches.map((search) => ({
+        id: search.id,
+        type: search.type as "keyword" | "brand_explorer",
+        query: search.query,
+        createdAt: search.createdAt,
+        updatedAt: search.updatedAt,
+        resultCount: search.type === 'keyword'
+          ? search._count.results
+          : search.summary?.totalVideos ?? 0,
+        summary: search.summary ?? null,
+      }))
+
+      return c.json(formatHistoryListResponse(items))
     } catch (error) {
       searchLogger.error("Failed to fetch searches", {
         error: error instanceof Error ? error.message : String(error),
@@ -280,25 +247,60 @@ const app = new Hono()
     const { id } = c.req.param()
 
     try {
-      // Try keyword search first
-      const keywordResults = await getKeywordSearchResults(id)
-      if (keywordResults.length > 0) {
-        return c.json(keywordResults)
+      // Find the search to determine its type
+      const search = await prisma.search.findUnique({
+        where: { id },
+      })
+
+      if (!search) {
+        return c.json({ error: 'Search not found' }, 404)
       }
 
-      // Try brand explorer
-      const brandResults = await getBrandExplorerResults(id)
-      if (brandResults) {
-        return c.json(brandResults)
+      if (search.type === 'keyword') {
+        const data = await getKeywordSearchData(id)
+        return c.json(toSearchResponse({ id, query: search.query, ...data }, true))
       }
 
-      return c.json({ error: 'Search not found' }, 404)
+      const brandData = await getBrandExplorerData(id)
+      if (brandData) {
+        return c.json(toSearchResponse({ id, query: search.query, ...brandData }, true))
+      }
+
+      return c.json({ error: 'Search results not found' }, 404)
     } catch (error) {
       searchLogger.error("Failed to fetch search results", {
         searchId: id,
         error: error instanceof Error ? error.message : String(error),
       })
       return c.json({ error: 'Failed to fetch search results' }, 500)
+    }
+  })
+  .delete('/history/:id', async (c) => {
+    const { id } = c.req.param()
+
+    try {
+      const search = await prisma.search.findUnique({
+        where: { id },
+      })
+
+      if (!search) {
+        return c.json({ error: 'Search not found' }, 404)
+      }
+
+      // Delete the search - cascade will handle related records
+      await prisma.search.delete({
+        where: { id },
+      })
+
+      searchLogger.info("Search deleted", { searchId: id })
+
+      return c.json({ success: true })
+    } catch (error) {
+      searchLogger.error("Failed to delete search", {
+        searchId: id,
+        error: error instanceof Error ? error.message : String(error),
+      })
+      return c.json({ error: 'Failed to delete search' }, 500)
     }
   })
   .post('/history/:id/refresh', async (c) => {
@@ -317,41 +319,11 @@ const app = new Hono()
       }
 
       if (search.type === 'keyword') {
-        // Re-run keyword search
         const videos = await searchTikTok(search.query)
+        const { results: classifiedResults, errorCount } = await classifyVideos(videos)
 
-        let classificationErrors = 0
-        const classifiedResults: KeywordSearchResult[] = []
-
-        for (const video of videos) {
-          try {
-            const classification = await classifyVideo({
-              caption: video.caption,
-              mentions: video.mentions,
-              hashtags: video.hashtags,
-              isAd: video.isAd,
-              isSponsored: video.isSponsored,
-            })
-
-            classifiedResults.push({
-              video,
-              classification,
-            })
-          } catch {
-            classificationErrors++
-            classifiedResults.push({
-              video,
-              classification: null,
-              error: 'Classification failed',
-            })
-          }
-        }
-
-        // Refresh database with new results
-        await refreshKeywordSearch(id, classifiedResults)
-
-        // Fetch from DB to ensure consistent format
-        const results = await getKeywordSearchResults(id)
+        // Refresh returns data in response format
+        const refreshedData = await refreshKeywordSearch(id, classifiedResults)
 
         const durationMs = Math.round(performance.now() - startTime)
 
@@ -361,22 +333,16 @@ const app = new Hono()
           statusCode: 200,
           durationMs,
           videoCount: videos.length,
-          classificationErrors,
+          classificationErrors: errorCount,
           searchId: id,
         })
 
-        return c.json({
-          keyword: search.query,
-          searchId: id,
-          cached: false,
-          results,
-        })
+        return c.json(toSearchResponse(refreshedData, false))
       } else if (search.type === 'brand_explorer') {
-        // Re-run brand explorer
         const result = await exploreBrand({ handle: search.query })
 
-        // Refresh database with new results
-        await refreshBrandExplorerSearch(id, result)
+        // Refresh returns data in response format
+        const refreshedData = await refreshBrandExplorerSearch(id, result)
 
         const durationMs = Math.round(performance.now() - startTime)
 
@@ -391,11 +357,7 @@ const app = new Hono()
           searchId: id,
         })
 
-        return c.json({
-          ...result,
-          searchId: id,
-          cached: false,
-        })
+        return c.json(toSearchResponse(refreshedData, false))
       }
 
       return c.json({ error: 'Unknown search type' }, 400)

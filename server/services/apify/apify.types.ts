@@ -15,6 +15,7 @@ export type TikTokVideo = {
   creator: {
     handle: string;
     followers: number;
+    avatarUrl: string | null;
   };
   stats: {
     likes: number;

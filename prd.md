@@ -1,53 +1,8 @@
-# Product Requirements Document
-
-## Influencer Search Intelligence Tool
-
-**Version:** 0.1 — Draft for Review
-**Date:** March 2026
-**Status:** Pre-build
-
----
-
-## 1. Problem Statement
-
-Brands and marketing teams currently have no way to search a keyword on TikTok or Instagram and see which competitors are paying influencers to appear in those results. The existing workflow is entirely manual: someone searches a term, scrolls through results, screenshots sponsored posts, and logs them in a spreadsheet.
-
-This is the equivalent of not having Ahrefs — you can see the search results, but you have no systematic way to understand who is paying to rank there, what they're saying, or how often.
-
-There is no product in the market that solves this today. The podcast that originated this conversation put it directly: _"If someone could figure out how to do this, I'll probably make a lot of money."_
-
----
-
-## 2. What We Are Building
-
-A web application that lets a user type a search term — exactly as they would in the TikTok or Instagram app — and returns a ranked list of sponsored and influencer-promoted content for that keyword, including:
-
-1. **Search position** — where the video ranks in TikTok/Instagram search results (1st, 2nd, 3rd, etc.)
-2. **Video caption** — the text of the post
-3. **The brand behind the promotion** — which business paid the creator
-4. **Creator handle** — who made the content, with follower count
-
-The primary use case is competitive intelligence: a company like Submagic wants to know which other brands (CapCut, Descript, VEED) are paying creators to appear when someone searches "how to add captions to a video."
-
----
-
-## 3. Why Now
-
-Three things have converged to make this buildable today:
-
-**TikTok as a search engine.** Over 40% of Gen Z now use TikTok instead of Google for searches. Brands are actively bidding on TikTok search placement, both through paid ads and through influencer partnerships. The commercial intent in TikTok search is now comparable to Google.
-
-**Official transparency APIs exist.** TikTok launched a Commercial Content API (EU) that returns `brand_names` on paid partnership posts. Meta has an equivalent Ad Library API covering Instagram. These were built for DSA compliance but are usable for this product.
-
-**Third-party scraping APIs have matured.** Apify provides a managed TikTok scraper that returns keyword search results in ranked order with `is_paid_partnership` flags and `@mentions` data — without requiring us to build and maintain our own scraper infrastructure.
-
----
-
-## 4. Data Sources
+## 1. Data Sources
 
 We are combining two sources to build a complete picture:
 
-### 4.1 Apify TikTok Scraper (Primary — search ranking)
+### 1.1 Apify TikTok Scraper (Primary — search ranking)
 
 A managed TikTok scraping platform. We use their TikTok scraper actor to search by keyword and get back results in ranked order. This gives us:
 
@@ -67,7 +22,7 @@ A managed TikTok scraping platform. We use their TikTok scraper actor to search 
 **Rate limits:** No per-minute caps; concurrent runs supported
 **Proxies:** Managed by Apify — residential proxies included, no infrastructure to maintain
 
-### 4.2 Brand Detection via LLM (Inferring who paid)
+### 1.2 Brand Detection via LLM (Inferring who paid)
 
 No field in the Apify response reliably tells us whether a post is sponsored or who paid for it. We run an LLM classifier on **every single video** returned by the search — not just those flagged by `isAd` or `isSponsored`.
 
@@ -106,7 +61,7 @@ The post has no official flag — but may still be a paid promotion. This is the
 
 ---
 
-## 5. How Brand Detection Works — Full Logic
+## 2. How Brand Detection Works — Full Logic
 
 ```
 For EVERY video returned by keyword search:
@@ -142,7 +97,7 @@ For EVERY video returned by keyword search:
 
 ---
 
-## 6. Example Output
+## 3. Example Output
 
 **User searches:** `"how to add captions to a video"`
 
@@ -155,9 +110,9 @@ For EVERY video returned by keyword search:
 
 ---
 
-## 7. V1 Architecture
+## 4. V1 Architecture
 
-### 7.1 Request flow (on-demand, no pre-indexing)
+### 4.1 Request flow (on-demand, no pre-indexing)
 
 ```
 User enters keyword in UI
@@ -178,7 +133,7 @@ Return to UI
 
 Total latency target: under 15 seconds for a full search.
 
-### 7.2 Stack
+### 4.2 Stack
 
 - **Frontend:** React
 - **Backend:** Node.js / Express
@@ -188,13 +143,13 @@ Total latency target: under 15 seconds for a full search.
 - **Database:** Postgres — cache results so repeat searches for the same keyword are instant
 - **Hosting:** TBD
 
-### 7.3 Caching strategy
+### 4.3 Caching strategy
 
 When a keyword is searched for the first time, results are fetched live and stored. When the same keyword is searched again within 24 hours, results are served from the database. This reduces cost and latency significantly as usage grows, and is the first step toward a pre-indexed approach.
 
 ---
 
-## 8. Known Limitations
+## 5. Known Limitations
 
 | Limitation                                            | Impact                                                                     | Mitigation                                                                                                |
 | ----------------------------------------------------- | -------------------------------------------------------------------------- | --------------------------------------------------------------------------------------------------------- |
@@ -208,7 +163,7 @@ When a keyword is searched for the first time, results are fetched live and stor
 
 ---
 
-## 9. What This Is Not (V1 Scope)
+## 6. What This Is Not (V1 Scope)
 
 - Not a pre-indexed database of all TikTok content (V2)
 - Not Instagram support (V2 — Meta Ad Library API endpoint exists and is ready)
@@ -218,7 +173,7 @@ When a keyword is searched for the first time, results are fetched live and stor
 
 ---
 
-## 10. Success Metrics
+## 7. Success Metrics
 
 | Metric                          | V1 Target                                                    |
 | ------------------------------- | ------------------------------------------------------------ |
@@ -230,7 +185,7 @@ When a keyword is searched for the first time, results are fetched live and stor
 
 ---
 
-## 11. Open Questions for Review
+## 8. Open Questions for Review
 
 1. **Pricing model:** Per-search credits vs. monthly subscription? Given cost per search is ~$0.10, a subscription model likely works better than pay-per-search.
 
@@ -244,7 +199,7 @@ When a keyword is searched for the first time, results are fetched live and stor
 
 ---
 
-## 12. Appendix — Key APIs Referenced
+## 9. Appendix — Key APIs Referenced
 
 | API                           | Provider                | Auth                   | Cost           | Coverage                       |
 | ----------------------------- | ----------------------- | ---------------------- | -------------- | ------------------------------ |

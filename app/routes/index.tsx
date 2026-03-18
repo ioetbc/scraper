@@ -1,52 +1,40 @@
-import { createFileRoute } from '@tanstack/react-router'
-import { useState, useMemo } from 'react'
-import { useQueryClient } from '@tanstack/react-query'
-import { SearchInput, type SearchMode } from '#/components/SearchInput'
-import { Sidebar } from '#/components/Sidebar'
-import { DataGrid } from '#/components/DataGrid'
-import { FilterTabs } from '#/components/FilterTabs'
-import { useHistoryQuery } from '#/hooks/useHistoryQuery'
-import { useHistoryDetailQuery } from '#/hooks/useHistoryDetailQuery'
-import { useSearchMutation } from '#/hooks/useSearchMutation'
-import { useBrandExplorerMutation } from '#/hooks/useBrandExplorerMutation'
-import type { SearchResult, BrandExplorerResponse } from '#/types'
+import {createFileRoute} from "@tanstack/react-router";
+import {useState, useMemo} from "react";
+import {useQueryClient} from "@tanstack/react-query";
+import type {SearchMode} from "#/components/SearchInput";
+import {SearchInput} from "#/components/SearchInput";
+import {Sidebar} from "#/components/Sidebar";
+import {DataGrid} from "#/components/DataGrid";
+import {useHistoryQuery} from "#/hooks/useHistoryQuery";
+import {useHistoryDetailQuery} from "#/hooks/useHistoryDetailQuery";
+import {useSearchMutation} from "#/hooks/useSearchMutation";
+import {useBrandExplorerMutation} from "#/hooks/useBrandExplorerMutation";
+import {useDeleteSearchMutation} from "#/hooks/useDeleteSearchMutation";
+import type {SearchResultItem, HistorySearchItem} from "#/types";
 
-export const Route = createFileRoute('/')({
+export const Route = createFileRoute("/")({
   component: HomePage,
-})
-
-function transformBrandResults(data: BrandExplorerResponse): SearchResult[] {
-  return data.videos.map((video, index) => ({
-    position: index + 1,
-    creator: {
-      handle: video.creator.handle,
-      followers: video.creator.followers,
-    },
-    caption: video.caption,
-    videoUrl: video.videoUrl,
-    isPromotion: true,
-    isAd: false,
-    isSponsored: false,
-    brand: data.brand,
-    confidence: video.confidence,
-    signals: [`${video.views.toLocaleString()} views`],
-    tier: 1,
-  }))
-}
+});
 
 function HomePage() {
-  const queryClient = useQueryClient()
-  const [activeFilter, setActiveFilter] = useState('all')
-  const [searchMode, setSearchMode] = useState<SearchMode>('query')
-  const [currentSearchId, setCurrentSearchId] = useState<string | null>(null)
-  const [currentSearchType, setCurrentSearchType] = useState<'keyword' | 'brand_explorer' | null>(null)
+  const queryClient = useQueryClient();
+  const [searchMode, setSearchMode] = useState<SearchMode>("query");
+  const [currentSearchId, setCurrentSearchId] = useState<string | null>(null);
+  const [currentSearchType, setCurrentSearchType] = useState<
+    "keyword" | "brand_explorer" | null
+  >(null);
+  const [pendingSearch, setPendingSearch] = useState<{
+    query: string;
+    type: "keyword" | "brand_explorer";
+  } | null>(null);
 
   // Fetch history from API
-  const { data: historyData, isLoading: isHistoryLoading } = useHistoryQuery()
-  const history = historyData?.searches ?? []
+  const {data: historyData, isLoading: isHistoryLoading} = useHistoryQuery();
+  const history = historyData?.searches ?? [];
 
   // Fetch results for selected search
-  const { data: historyDetail, isLoading: isDetailLoading } = useHistoryDetailQuery(currentSearchId)
+  const {data: historyDetail, isLoading: isDetailLoading} =
+    useHistoryDetailQuery(currentSearchId);
 
   const {
     mutate: search,
@@ -56,11 +44,15 @@ function HomePage() {
   } = useSearchMutation({
     onSuccess: (result) => {
       // Invalidate history to refresh the list
-      queryClient.invalidateQueries({ queryKey: ['history'] })
-      setCurrentSearchId(result.searchId)
-      setCurrentSearchType('keyword')
+      queryClient.invalidateQueries({queryKey: ["history"]});
+      setCurrentSearchId(result.searchId);
+      setCurrentSearchType("keyword");
+      setPendingSearch(null);
     },
-  })
+    onError: () => {
+      setPendingSearch(null);
+    },
+  });
 
   const {
     mutate: exploreBrand,
@@ -70,129 +62,136 @@ function HomePage() {
   } = useBrandExplorerMutation({
     onSuccess: (result) => {
       // Invalidate history to refresh the list
-      queryClient.invalidateQueries({ queryKey: ['history'] })
-      setCurrentSearchId(result.searchId)
-      setCurrentSearchType('brand_explorer')
+      queryClient.invalidateQueries({queryKey: ["history"]});
+      setCurrentSearchId(result.searchId);
+      setCurrentSearchType("brand_explorer");
+      setPendingSearch(null);
     },
-  })
+    onError: () => {
+      setPendingSearch(null);
+    },
+  });
 
-  const isPending = isSearchPending || isBrandPending || isDetailLoading
-  const error = searchError || brandError
+  const {mutate: deleteSearch} = useDeleteSearchMutation({
+    onSuccess: (deletedId) => {
+      // Clear selection if we deleted the currently selected search
+      if (currentSearchId === deletedId) {
+        setCurrentSearchId(null);
+        setCurrentSearchType(null);
+      }
+    },
+  });
+
+  const isPending = isSearchPending || isBrandPending || isDetailLoading;
+  const error = searchError || brandError;
+
+  // Create optimistic history list with pending search at top
+  const displayHistory: HistorySearchItem[] = useMemo(() => {
+    if (pendingSearch) {
+      const pendingItem: HistorySearchItem = {
+        id: "pending",
+        type: pendingSearch.type,
+        query: pendingSearch.query,
+        createdAt: new Date().toISOString(),
+        updatedAt: new Date().toISOString(),
+        resultCount: 0,
+        summary: null,
+      };
+      return [pendingItem, ...history];
+    }
+    return history;
+  }, [pendingSearch, history]);
 
   // Get current search query for display
-  const currentSearch = history.find((s) => s.id === currentSearchId)
-  const keyword = currentSearch?.query ?? null
+  const currentSearch = displayHistory.find((s) => s.id === currentSearchId);
+  const keyword = currentSearch?.query ?? pendingSearch?.query ?? null;
 
-  const results = useMemo(() => {
+  const results: SearchResultItem[] = useMemo(() => {
     // If we just ran a new search, use that data
-    if (currentSearchType === 'brand_explorer' && brandData) {
-      return transformBrandResults(brandData)
+    if (currentSearchType === "brand_explorer" && brandData) {
+      return brandData.results;
     }
-    if (currentSearchType === 'keyword' && searchData) {
-      return searchData.results
+    if (currentSearchType === "keyword" && searchData) {
+      return searchData.results;
     }
 
     // Otherwise, use data from history detail query
     if (historyDetail) {
-      if (historyDetail.type === 'keyword') {
-        return historyDetail.results
-      }
-      if (historyDetail.type === 'brand_explorer') {
-        return transformBrandResults(historyDetail.data)
-      }
+      return historyDetail.results;
     }
 
-    return []
-  }, [currentSearchType, brandData, searchData, historyDetail])
+    return [];
+  }, [currentSearchType, brandData, searchData, historyDetail]);
 
   const handleSearch = (searchTerm: string, mode: SearchMode) => {
-    setActiveFilter('all')
-    setSearchMode(mode)
-    // Clear current selection so we show fresh results
-    setCurrentSearchId(null)
-    setCurrentSearchType(null)
-    if (mode === 'brand') {
-      exploreBrand(searchTerm)
+    const searchType = mode === "brand" ? "brand_explorer" : "keyword";
+    setSearchMode(mode);
+    // Set pending search and select it immediately
+    setPendingSearch({query: searchTerm, type: searchType});
+    setCurrentSearchId("pending");
+    setCurrentSearchType(searchType);
+    if (mode === "brand") {
+      exploreBrand(searchTerm);
     } else {
-      search(searchTerm)
+      search(searchTerm);
     }
-  }
+  };
 
   const handleSelectFromHistory = (searchId: string) => {
-    const selectedSearch = history.find((s) => s.id === searchId)
+    const selectedSearch = history.find((s) => s.id === searchId);
     if (selectedSearch) {
-      setActiveFilter('all')
-      setSearchMode(selectedSearch.type === 'brand_explorer' ? 'brand' : 'query')
-      setCurrentSearchId(searchId)
-      setCurrentSearchType(selectedSearch.type)
+      setSearchMode(
+        selectedSearch.type === "brand_explorer" ? "brand" : "query",
+      );
+      setCurrentSearchId(searchId);
+      setCurrentSearchType(selectedSearch.type);
     }
-  }
+  };
 
-  const filteredResults = useMemo(() => {
-    switch (activeFilter) {
-      case 'promotions':
-        return results.filter((r) => r.isPromotion)
-      case 'highConfidence':
-        return results.filter((r) => r.confidence >= 0.8)
-      case 'tier1':
-        return results.filter((r) => r.tier === 1)
-      default:
-        return results
-    }
-  }, [results, activeFilter])
-
-  const resultCounts = useMemo(
-    () => ({
-      all: results.length,
-      promotions: results.filter((r) => r.isPromotion).length,
-      highConfidence: results.filter((r) => r.confidence >= 0.8).length,
-      tier1: results.filter((r) => r.tier === 1).length,
-    }),
-    [results]
-  )
+  const handleDeleteSearch = (searchId: string) => {
+    deleteSearch(searchId);
+  };
 
   return (
     <div className="flex h-screen bg-white">
       <Sidebar
-        history={history}
+        history={displayHistory}
         isLoading={isHistoryLoading}
         onSelectSearch={handleSelectFromHistory}
+        onDeleteSearch={handleDeleteSearch}
         currentSearchId={currentSearchId}
       />
 
       <main className="flex-1 flex flex-col overflow-hidden">
-        <header className="p-4 border-b border-gray-200">
-          <div className="max-w-2xl">
-            <h1 className="text-xl font-bold text-gray-900 mb-4">
-              TikTok Brand Detection
-            </h1>
-            <SearchInput
-              onSearch={handleSearch}
-              isLoading={isPending}
-              mode={searchMode}
-              onModeChange={setSearchMode}
-            />
-          </div>
+        {/* Header */}
+        <header className="px-4 py-3 border-b border-gray-200 flex items-center justify-between gap-6">
+          <h1 className="text-sm font-semibold text-gray-800 m-0 whitespace-nowrap">
+            Habitz
+          </h1>
+          <SearchInput
+            onSearch={handleSearch}
+            isLoading={isPending}
+            mode={searchMode}
+            onModeChange={setSearchMode}
+          />
         </header>
 
+        {/* Error banner */}
         {error && (
-          <div className="m-4 p-4 bg-red-50 border border-red-200 rounded-lg text-red-700">
-            {error instanceof Error ? error.message : 'Search failed'}
+          <div className="px-4 py-2 bg-red-50 border-b border-red-200 text-red-700 text-xs">
+            Error: {error instanceof Error ? error.message : "Search failed"}
           </div>
         )}
 
-        {results.length > 0 && (
-          <FilterTabs
-            activeFilter={activeFilter}
-            onFilterChange={setActiveFilter}
-            resultCounts={resultCounts}
-          />
-        )}
-
+        {/* Data grid */}
         <div className="flex-1 overflow-hidden">
-          <DataGrid data={filteredResults} keyword={keyword} />
+          <DataGrid
+            data={results}
+            keyword={keyword}
+            isLoading={isSearchPending || isBrandPending}
+          />
         </div>
       </main>
     </div>
-  )
+  );
 }

@@ -1,6 +1,82 @@
 import { prisma, PLACEHOLDER_USER_ID } from "../../lib/prisma";
-import type { BrandExplorerResult } from "../brand-explorer";
-import type { SavedBrandExplorerSearch } from "./brand-explorer-history.types";
+import type { BrandExplorerResult, BrandVideo, BrandInfluencer } from "../brand-explorer";
+import type { SavedBrandExplorerSearch, BrandExplorerData } from "./brand-explorer-history.types";
+import type { SearchResultItem, SearchSummary, SearchData } from "../../lib/response";
+
+/**
+ * Creates videos for a brand explorer search.
+ * Returns a map of tiktokId -> new video id for linking.
+ */
+async function createBrandExplorerVideos(
+  searchId: string,
+  videos: BrandVideo[]
+): Promise<Map<string, string>> {
+  const tiktokIdToVideoId = new Map<string, string>();
+
+  for (const video of videos) {
+    const created = await prisma.video.create({
+      data: {
+        searchId,
+        tiktokId: video.id,
+        caption: video.caption,
+        isAd: false,
+        isSponsored: false,
+        creatorHandle: video.creator.handle,
+        creatorFollowers: video.creator.followers,
+        creatorAvatarUrl: video.creator.avatarUrl,
+        videoUrl: video.videoUrl,
+        stats: {
+          create: {
+            views: video.views,
+            likes: 0,
+            comments: 0,
+            shares: 0,
+          },
+        },
+      },
+    });
+
+    tiktokIdToVideoId.set(video.id, created.id);
+  }
+
+  return tiktokIdToVideoId;
+}
+
+/**
+ * Creates influencer records with video connections.
+ */
+async function createBrandExplorerInfluencers(
+  searchId: string,
+  summaryId: string,
+  influencers: BrandInfluencer[],
+  videos: BrandVideo[],
+  tiktokIdToVideoId: Map<string, string>
+): Promise<void> {
+  for (const influencer of influencers) {
+    const influencerVideoIds = videos
+      .filter((v) => v.creator.handle === influencer.handle)
+      .map((v) => {
+        const videoId = tiktokIdToVideoId.get(v.id);
+        return videoId ? { id: videoId } : null;
+      })
+      .filter((v): v is { id: string } => v !== null);
+
+    await prisma.brandExplorerInfluencer.create({
+      data: {
+        searchId,
+        summaryId,
+        handle: influencer.handle,
+        followers: influencer.followers,
+        videoCount: influencer.videosForBrand,
+        totalViews: influencer.totalViews,
+        totalLikes: 0,
+        videos: {
+          connect: influencerVideoIds,
+        },
+      },
+    });
+  }
+}
 
 export async function findBrandExplorerSearch(
   handle: string
@@ -35,46 +111,42 @@ export async function findBrandExplorerSearch(
   };
 }
 
+/**
+ * Builds SearchResultItem[] from brand explorer videos.
+ * Brand explorer videos are promotions by definition (found via brand mention).
+ */
+function buildBrandExplorerResults(
+  query: string,
+  videos: BrandVideo[]
+): SearchResultItem[] {
+  return videos.map((video, index) => ({
+    position: index + 1,
+    creator: {
+      handle: video.creator.handle,
+      followers: video.creator.followers,
+      avatarUrl: video.creator.avatarUrl,
+    },
+    caption: video.caption,
+    videoUrl: video.videoUrl,
+    views: video.views,
+    isPromotion: true,
+    isAd: false,
+    isSponsored: false,
+    brand: query,
+    confidence: 0.9,
+    signals: ["brand_mention"],
+    tier: 1 as const,
+    error: undefined,
+  }));
+}
+
 export async function saveBrandExplorerSearch(
   handle: string,
   result: BrandExplorerResult
-): Promise<SavedBrandExplorerSearch> {
+): Promise<SearchData> {
   const normalizedQuery = handle.toLowerCase();
 
-  // Upsert all videos first
-  for (const video of result.videos) {
-    await prisma.video.upsert({
-      where: { id: video.id },
-      update: {
-        caption: video.caption,
-        creatorHandle: video.creator.handle,
-        creatorFollowers: video.creator.followers,
-        videoUrl: video.videoUrl,
-      },
-      create: {
-        id: video.id,
-        caption: video.caption,
-        isAd: false,
-        isSponsored: false,
-        creatorHandle: video.creator.handle,
-        creatorFollowers: video.creator.followers,
-        videoUrl: video.videoUrl,
-      },
-    });
-
-    // Create stats snapshot
-    await prisma.videoStats.create({
-      data: {
-        videoId: video.id,
-        views: video.views,
-        likes: 0,
-        comments: 0,
-        shares: 0,
-      },
-    });
-  }
-
-  // Create search with summary and influencers
+  // Create the search first
   const search = await prisma.search.create({
     data: {
       user: {
@@ -85,103 +157,60 @@ export async function saveBrandExplorerSearch(
       },
       type: "brand_explorer",
       query: normalizedQuery,
-      summary: {
-        create: {
-          totalVideos: result.summary.totalVideos,
-          totalInfluencers: result.summary.totalInfluencers,
-          totalReach: result.summary.totalReach,
-          videos: {
-            connect: result.videos.map((v) => ({ id: v.id })),
-          },
-        },
-      },
-    },
-    include: {
-      summary: true,
     },
   });
 
-  // Create influencers with their video connections
-  for (const influencer of result.influencers) {
-    const influencerVideoIds = result.videos
-      .filter((v) => v.creator.handle === influencer.handle)
-      .map((v) => ({ id: v.id }));
+  // Create videos linked to this search
+  const tiktokIdToVideoId = await createBrandExplorerVideos(search.id, result.videos);
 
-    await prisma.brandExplorerInfluencer.create({
-      data: {
-        searchId: search.id,
-        summaryId: search.summary!.id,
-        handle: influencer.handle,
-        followers: influencer.followers,
-        videoCount: influencer.videosForBrand,
-        totalViews: influencer.totalViews,
-        totalLikes: 0,
-        videos: {
-          connect: influencerVideoIds,
-        },
+  // Create summary with video connections
+  const summary = await prisma.brandExplorerSummary.create({
+    data: {
+      searchId: search.id,
+      totalVideos: result.summary.totalVideos,
+      totalInfluencers: result.summary.totalInfluencers,
+      totalReach: result.summary.totalReach,
+      videos: {
+        connect: result.videos.map((v) => ({ id: tiktokIdToVideoId.get(v.id)! })),
       },
-    });
-  }
+    },
+  });
+
+  await createBrandExplorerInfluencers(
+    search.id,
+    summary.id,
+    result.influencers,
+    result.videos,
+    tiktokIdToVideoId
+  );
 
   return {
     id: search.id,
     query: search.query,
-    createdAt: search.createdAt,
-    updatedAt: search.updatedAt,
-    summary: {
-      totalVideos: search.summary!.totalVideos,
-      totalInfluencers: search.summary!.totalInfluencers,
-      totalReach: search.summary!.totalReach,
-    },
+    summary: result.summary,
+    results: buildBrandExplorerResults(search.query, result.videos),
   };
 }
 
 export async function refreshBrandExplorerSearch(
   searchId: string,
   result: BrandExplorerResult
-): Promise<SavedBrandExplorerSearch> {
-  // Delete existing summary and influencers (cascade will handle related records)
+): Promise<SearchData> {
+  // Delete existing data (videos cascade their mentions/hashtags/stats)
   await prisma.brandExplorerInfluencer.deleteMany({
     where: { searchId },
   });
   await prisma.brandExplorerSummary.deleteMany({
     where: { searchId },
   });
+  await prisma.video.deleteMany({
+    where: { searchId },
+  });
 
-  // Upsert all videos
-  for (const video of result.videos) {
-    await prisma.video.upsert({
-      where: { id: video.id },
-      update: {
-        caption: video.caption,
-        creatorHandle: video.creator.handle,
-        creatorFollowers: video.creator.followers,
-        videoUrl: video.videoUrl,
-      },
-      create: {
-        id: video.id,
-        caption: video.caption,
-        isAd: false,
-        isSponsored: false,
-        creatorHandle: video.creator.handle,
-        creatorFollowers: video.creator.followers,
-        videoUrl: video.videoUrl,
-      },
-    });
+  // Create new videos linked to this search
+  const tiktokIdToVideoId = await createBrandExplorerVideos(searchId, result.videos);
 
-    // Create stats snapshot
-    await prisma.videoStats.create({
-      data: {
-        videoId: video.id,
-        views: video.views,
-        likes: 0,
-        comments: 0,
-        shares: 0,
-      },
-    });
-  }
-
-  // Create new summary
+  // Create summary with video connections
   const summary = await prisma.brandExplorerSummary.create({
     data: {
       searchId,
@@ -189,58 +218,36 @@ export async function refreshBrandExplorerSearch(
       totalInfluencers: result.summary.totalInfluencers,
       totalReach: result.summary.totalReach,
       videos: {
-        connect: result.videos.map((v) => ({ id: v.id })),
+        connect: result.videos.map((v) => ({ id: tiktokIdToVideoId.get(v.id)! })),
       },
     },
   });
 
-  // Create influencers
-  for (const influencer of result.influencers) {
-    const influencerVideoIds = result.videos
-      .filter((v) => v.creator.handle === influencer.handle)
-      .map((v) => ({ id: v.id }));
+  await createBrandExplorerInfluencers(
+    searchId,
+    summary.id,
+    result.influencers,
+    result.videos,
+    tiktokIdToVideoId
+  );
 
-    await prisma.brandExplorerInfluencer.create({
-      data: {
-        searchId,
-        summaryId: summary.id,
-        handle: influencer.handle,
-        followers: influencer.followers,
-        videoCount: influencer.videosForBrand,
-        totalViews: influencer.totalViews,
-        totalLikes: 0,
-        videos: {
-          connect: influencerVideoIds,
-        },
-      },
-    });
-  }
-
-  // Update search timestamp
+  // Update search timestamp and get query
   const search = await prisma.search.update({
     where: { id: searchId },
     data: { updatedAt: new Date() },
-    include: {
-      summary: true,
-    },
   });
 
   return {
     id: search.id,
     query: search.query,
-    createdAt: search.createdAt,
-    updatedAt: search.updatedAt,
-    summary: {
-      totalVideos: search.summary!.totalVideos,
-      totalInfluencers: search.summary!.totalInfluencers,
-      totalReach: search.summary!.totalReach,
-    },
+    summary: result.summary,
+    results: buildBrandExplorerResults(search.query, result.videos),
   };
 }
 
-export async function getBrandExplorerResults(
+export async function getBrandExplorerData(
   searchId: string
-): Promise<BrandExplorerResult | null> {
+): Promise<BrandExplorerData | null> {
   const search = await prisma.search.findUnique({
     where: { id: searchId },
     include: {
@@ -254,11 +261,6 @@ export async function getBrandExplorerResults(
               },
             },
           },
-          influencers: {
-            include: {
-              videos: true,
-            },
-          },
         },
       },
     },
@@ -266,29 +268,31 @@ export async function getBrandExplorerResults(
 
   if (!search || !search.summary) return null;
 
-  return {
-    brand: search.query,
-    summary: {
-      totalVideos: search.summary.totalVideos,
-      totalInfluencers: search.summary.totalInfluencers,
-      totalReach: search.summary.totalReach,
-    },
-    influencers: search.summary.influencers.map((inf) => ({
-      handle: inf.handle,
-      followers: inf.followers,
-      videosForBrand: inf.videoCount,
-      totalViews: inf.totalViews,
-    })),
-    videos: search.summary.videos.map((video) => ({
-      id: video.id,
-      creator: {
-        handle: video.creatorHandle,
-        followers: video.creatorFollowers,
-      },
-      caption: video.caption,
-      views: video.stats[0]?.views ?? 0,
-      videoUrl: video.videoUrl,
-      confidence: 0, // Not stored, would need SearchResult for this
-    })),
+  const summary: SearchSummary = {
+    totalVideos: search.summary.totalVideos,
+    totalInfluencers: search.summary.totalInfluencers,
+    totalReach: search.summary.totalReach,
   };
+
+  const results: SearchResultItem[] = search.summary.videos.map((video, index) => ({
+    position: index + 1,
+    creator: {
+      handle: video.creatorHandle,
+      followers: video.creatorFollowers,
+      avatarUrl: video.creatorAvatarUrl,
+    },
+    caption: video.caption,
+    videoUrl: video.videoUrl,
+    views: video.stats[0]?.views ?? 0,
+    isPromotion: true, // Brand explorer videos are promotions by definition
+    isAd: video.isAd,
+    isSponsored: video.isSponsored,
+    brand: search.query,
+    confidence: 0.9, // High confidence since found via brand mention
+    signals: ["brand_mention"],
+    tier: 1,
+    error: undefined,
+  }));
+
+  return { summary, results };
 }

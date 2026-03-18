@@ -1,5 +1,42 @@
 import { prisma, PLACEHOLDER_USER_ID } from "../../lib/prisma";
-import type { KeywordSearchResult, SavedKeywordSearch, KeywordSearchResultResponse } from "./keyword-search-history.types";
+import { classifyVideo } from "../classifier";
+import type { TikTokVideo } from "../apify";
+import type { KeywordSearchResult, SavedKeywordSearch } from "./keyword-search-history.types";
+import type { SearchResultItem, SearchSummary, SearchData } from "../../lib/response";
+
+/**
+ * Classifies an array of TikTok videos for brand promotion detection.
+ * Returns classified results and error count for logging.
+ */
+export async function classifyVideos(
+  videos: TikTokVideo[]
+): Promise<{ results: KeywordSearchResult[]; errorCount: number }> {
+  let errorCount = 0;
+  const results: KeywordSearchResult[] = [];
+
+  for (const video of videos) {
+    try {
+      const classification = await classifyVideo({
+        caption: video.caption,
+        mentions: video.mentions,
+        hashtags: video.hashtags,
+        isAd: video.isAd,
+        isSponsored: video.isSponsored,
+      });
+
+      results.push({ video, classification });
+    } catch {
+      errorCount++;
+      results.push({
+        video,
+        classification: null,
+        error: "Classification failed",
+      });
+    }
+  }
+
+  return { results, errorCount };
+}
 
 export async function findKeywordSearch(query: string): Promise<SavedKeywordSearch | null> {
   const normalizedQuery = query.toLowerCase();
@@ -32,10 +69,11 @@ export async function findKeywordSearch(query: string): Promise<SavedKeywordSear
 
 export async function saveKeywordSearch(
   query: string,
-  results: KeywordSearchResult[]
-): Promise<SavedKeywordSearch> {
+  classifiedResults: KeywordSearchResult[]
+): Promise<SearchData> {
   const normalizedQuery = query.toLowerCase();
 
+  // Create the search first
   const search = await prisma.search.create({
     data: {
       user: {
@@ -46,117 +84,196 @@ export async function saveKeywordSearch(
       },
       type: "keyword",
       query: normalizedQuery,
-      results: {
-        create: await Promise.all(
-          results.map(async (result, index) => {
-            const video = await upsertVideo(result.video);
-            await createVideoStats(result.video);
-
-            const isPromotion = result.video.isAd || result.video.isSponsored || (result.classification?.isPromotion ?? false);
-            let brand = result.classification?.brand ?? null;
-            if (isPromotion && !brand) {
-              brand = 'NOT_FOUND';
-            }
-
-            return {
-              videoId: video.id,
-              position: index,
-              isPromotion,
-              brand,
-              confidence: result.classification?.confidence ?? 0,
-              signals: result.classification?.signals ?? [],
-              tier: result.classification?.tier ?? null,
-              error: result.error ?? null,
-            };
-          })
-        ),
-      },
-    },
-    include: {
-      _count: {
-        select: { results: true },
-      },
     },
   });
 
-  return {
-    id: search.id,
-    query: search.query,
-    createdAt: search.createdAt,
-    updatedAt: search.updatedAt,
-    resultCount: search._count.results,
-  };
-}
+  // Build response items while saving to DB
+  const responseItems: SearchResultItem[] = [];
 
-export async function refreshKeywordSearch(
-  searchId: string,
-  results: KeywordSearchResult[]
-): Promise<SavedKeywordSearch> {
-  // Delete existing results
-  await prisma.searchResult.deleteMany({
-    where: { searchId },
-  });
+  for (let index = 0; index < classifiedResults.length; index++) {
+    const result = classifiedResults[index];
+    const video = await createVideoForSearch(search.id, result.video);
 
-  // Create new results
-  for (let index = 0; index < results.length; index++) {
-    const result = results[index];
-    const video = await upsertVideo(result.video);
-    await createVideoStats(result.video);
+    const isPromotion = result.video.isAd || result.video.isSponsored || (result.classification?.isPromotion ?? false);
+    let brand = result.classification?.brand ?? null;
+    if (isPromotion && !brand) {
+      brand = 'NOT_FOUND';
+    }
 
     await prisma.searchResult.create({
       data: {
-        searchId,
+        searchId: search.id,
         videoId: video.id,
         position: index,
-        isPromotion: result.classification?.isPromotion ?? false,
-        brand: result.classification?.brand ?? null,
+        isPromotion,
+        brand,
         confidence: result.classification?.confidence ?? 0,
         signals: result.classification?.signals ?? [],
         tier: result.classification?.tier ?? null,
         error: result.error ?? null,
       },
     });
+
+    responseItems.push({
+      position: index + 1,
+      creator: {
+        handle: result.video.creator.handle,
+        followers: result.video.creator.followers,
+        avatarUrl: result.video.creator.avatarUrl,
+      },
+      caption: result.video.caption,
+      videoUrl: result.video.videoUrl,
+      views: result.video.stats.views,
+      isPromotion,
+      isAd: result.video.isAd,
+      isSponsored: result.video.isSponsored,
+      brand,
+      confidence: result.classification?.confidence ?? 0,
+      signals: result.classification?.signals ?? [],
+      tier: result.classification?.tier ?? null,
+      error: result.error,
+    });
   }
 
-  // Update search timestamp
-  const search = await prisma.search.update({
-    where: { id: searchId },
-    data: { updatedAt: new Date() },
-    include: {
-      _count: {
-        select: { results: true },
-      },
-    },
-  });
+  // Calculate summary from data we already have
+  const uniqueCreators = new Set(classifiedResults.map((r) => r.video.creator.handle));
+  const totalReach = classifiedResults.reduce((sum, r) => sum + r.video.creator.followers, 0);
 
   return {
     id: search.id,
     query: search.query,
-    createdAt: search.createdAt,
-    updatedAt: search.updatedAt,
-    resultCount: search._count.results,
+    summary: {
+      totalVideos: classifiedResults.length,
+      totalInfluencers: uniqueCreators.size,
+      totalReach,
+    },
+    results: responseItems,
   };
 }
 
-export async function getKeywordSearchResults(
+export async function refreshKeywordSearch(
+  searchId: string,
+  classifiedResults: KeywordSearchResult[]
+): Promise<SearchData> {
+  // Delete existing results and videos (videos cascade from searchId)
+  await prisma.searchResult.deleteMany({
+    where: { searchId },
+  });
+  await prisma.video.deleteMany({
+    where: { searchId },
+  });
+
+  // Build response items while saving to DB
+  const responseItems: SearchResultItem[] = [];
+
+  for (let index = 0; index < classifiedResults.length; index++) {
+    const result = classifiedResults[index];
+    const video = await createVideoForSearch(searchId, result.video);
+
+    const isPromotion = result.video.isAd || result.video.isSponsored || (result.classification?.isPromotion ?? false);
+    let brand = result.classification?.brand ?? null;
+    if (isPromotion && !brand) {
+      brand = 'NOT_FOUND';
+    }
+
+    await prisma.searchResult.create({
+      data: {
+        searchId,
+        videoId: video.id,
+        position: index,
+        isPromotion,
+        brand,
+        confidence: result.classification?.confidence ?? 0,
+        signals: result.classification?.signals ?? [],
+        tier: result.classification?.tier ?? null,
+        error: result.error ?? null,
+      },
+    });
+
+    responseItems.push({
+      position: index + 1,
+      creator: {
+        handle: result.video.creator.handle,
+        followers: result.video.creator.followers,
+        avatarUrl: result.video.creator.avatarUrl,
+      },
+      caption: result.video.caption,
+      videoUrl: result.video.videoUrl,
+      views: result.video.stats.views,
+      isPromotion,
+      isAd: result.video.isAd,
+      isSponsored: result.video.isSponsored,
+      brand,
+      confidence: result.classification?.confidence ?? 0,
+      signals: result.classification?.signals ?? [],
+      tier: result.classification?.tier ?? null,
+      error: result.error,
+    });
+  }
+
+  // Update search timestamp and get query
+  const search = await prisma.search.update({
+    where: { id: searchId },
+    data: { updatedAt: new Date() },
+  });
+
+  // Calculate summary from data we already have
+  const uniqueCreators = new Set(classifiedResults.map((r) => r.video.creator.handle));
+  const totalReach = classifiedResults.reduce((sum, r) => sum + r.video.creator.followers, 0);
+
+  return {
+    id: search.id,
+    query: search.query,
+    summary: {
+      totalVideos: classifiedResults.length,
+      totalInfluencers: uniqueCreators.size,
+      totalReach,
+    },
+    results: responseItems,
+  };
+}
+
+export async function getKeywordSearchData(
   searchId: string
-): Promise<KeywordSearchResultResponse[]> {
+): Promise<{ summary: SearchSummary; results: SearchResultItem[] }> {
   const results = await prisma.searchResult.findMany({
     where: { searchId },
     orderBy: { position: "asc" },
     include: {
-      video: true,
+      video: {
+        include: {
+          stats: {
+            orderBy: { recordedAt: "desc" },
+            take: 1,
+          },
+        },
+      },
     },
   });
 
-  return results.map((result) => ({
+  // Calculate summary from results
+  const uniqueCreators = new Set(results.map((r) => r.video.creatorHandle));
+  const totalReach = results.reduce(
+    (sum, r) => sum + r.video.creatorFollowers,
+    0
+  );
+
+  const summary: SearchSummary = {
+    totalVideos: results.length,
+    totalInfluencers: uniqueCreators.size,
+    totalReach,
+  };
+
+  const items: SearchResultItem[] = results.map((result) => ({
     position: result.position + 1,
     creator: {
       handle: result.video.creatorHandle,
       followers: result.video.creatorFollowers,
+      avatarUrl: result.video.creatorAvatarUrl,
     },
     caption: result.video.caption,
     videoUrl: result.video.videoUrl,
+    views: result.video.stats[0]?.views ?? 0,
     isPromotion: result.isPromotion,
     isAd: result.video.isAd,
     isSponsored: result.video.isSponsored,
@@ -166,55 +283,37 @@ export async function getKeywordSearchResults(
     tier: result.tier as 1 | 2 | null,
     error: result.error ?? undefined,
   }));
+
+  return { summary, results: items };
 }
 
-async function upsertVideo(video: KeywordSearchResult["video"]) {
-  return prisma.video.upsert({
-    where: { id: video.id },
-    update: {
-      caption: video.caption,
-      isAd: video.isAd,
-      isSponsored: video.isSponsored,
-      creatorHandle: video.creator.handle,
-      creatorFollowers: video.creator.followers,
-      videoUrl: video.videoUrl,
-      shopProductUrl: video.shopProductUrl,
-      mentions: {
-        deleteMany: {},
-        create: video.mentions.map((mention) => ({ mention })),
-      },
-      hashtags: {
-        deleteMany: {},
-        create: video.hashtags.map((hashtag) => ({ hashtag })),
-      },
-    },
-    create: {
-      id: video.id,
-      caption: video.caption,
-      isAd: video.isAd,
-      isSponsored: video.isSponsored,
-      creatorHandle: video.creator.handle,
-      creatorFollowers: video.creator.followers,
-      videoUrl: video.videoUrl,
-      shopProductUrl: video.shopProductUrl,
-      mentions: {
-        create: video.mentions.map((mention) => ({ mention })),
-      },
-      hashtags: {
-        create: video.hashtags.map((hashtag) => ({ hashtag })),
-      },
-    },
-  });
-}
-
-async function createVideoStats(video: KeywordSearchResult["video"]) {
-  await prisma.videoStats.create({
+async function createVideoForSearch(searchId: string, video: KeywordSearchResult["video"]) {
+  return prisma.video.create({
     data: {
-      videoId: video.id,
-      likes: video.stats.likes,
-      comments: video.stats.comments,
-      shares: video.stats.shares,
-      views: video.stats.views,
+      searchId,
+      tiktokId: video.id,
+      caption: video.caption,
+      isAd: video.isAd,
+      isSponsored: video.isSponsored,
+      creatorHandle: video.creator.handle,
+      creatorFollowers: video.creator.followers,
+      creatorAvatarUrl: video.creator.avatarUrl,
+      videoUrl: video.videoUrl,
+      shopProductUrl: video.shopProductUrl,
+      mentions: {
+        create: video.mentions.map((mention) => ({ mention })),
+      },
+      hashtags: {
+        create: video.hashtags.map((hashtag) => ({ hashtag })),
+      },
+      stats: {
+        create: {
+          likes: video.stats.likes,
+          comments: video.stats.comments,
+          shares: video.stats.shares,
+          views: video.stats.views,
+        },
+      },
     },
   });
 }

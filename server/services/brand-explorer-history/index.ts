@@ -2,10 +2,11 @@ export {
   findBrandExplorerSearch,
   saveBrandExplorerSearch,
   refreshBrandExplorerSearch,
-  getBrandExplorerResults,
+  getBrandExplorerData,
 } from "./brand-explorer-history";
 
 export type {
   SavedBrandExplorerSearch,
   BrandExplorerResult,
+  BrandExplorerData,
 } from "./brand-explorer-history.types";

@@ -1,5 +1,5 @@
 datasource db {
-  provider = "postgresql"
+  provider  = "postgresql"
 }
 
 generator client {
@@ -25,6 +25,7 @@ model Search {
   results     SearchResult[]
   summary     BrandExplorerSummary?
   influencers BrandExplorerInfluencer[]
+  videos      Video[]
 
   @@unique([userId, type, query])
 }
@@ -35,12 +36,16 @@ enum SearchType {
 }
 
 model Video {
-  id               String   @id
+  id               String   @id @default(cuid())
+  searchId         String
+  search           Search   @relation(fields: [searchId], references: [id], onDelete: Cascade)
+  tiktokId         String
   caption          String
   isAd             Boolean
   isSponsored      Boolean
   creatorHandle    String
   creatorFollowers Int
+  creatorAvatarUrl String?
   videoUrl         String
   shopProductUrl   String?
   createdAt        DateTime @default(now())
@@ -57,21 +62,21 @@ model Video {
 model VideoMention {
   id      String @id @default(cuid())
   videoId String
-  video   Video  @relation(fields: [videoId], references: [id])
+  video   Video  @relation(fields: [videoId], references: [id], onDelete: Cascade)
   mention String
 }
 
 model VideoHashtag {
   id      String @id @default(cuid())
   videoId String
-  video   Video  @relation(fields: [videoId], references: [id])
+  video   Video  @relation(fields: [videoId], references: [id], onDelete: Cascade)
   hashtag String
 }
 
 model VideoStats {
   id         String   @id @default(cuid())
   videoId    String
-  video      Video    @relation(fields: [videoId], references: [id])
+  video      Video    @relation(fields: [videoId], references: [id], onDelete: Cascade)
   likes      Int
   comments   Int
   shares     Int

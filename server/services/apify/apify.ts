@@ -171,6 +171,7 @@ function mapApifyResults(items: any[]): TikTokVideo[] {
       creator: {
         handle: item.authorMeta?.name || item.author?.uniqueId || '',
         followers: item.authorMeta?.fans || item.author?.followerCount || 0,
+        avatarUrl: item.authorMeta?.avatar || item.author?.avatarThumb || item.author?.avatarMedium || null,
       },
       stats: {
         likes: item.diggCount || item.stats?.diggCount || 0,

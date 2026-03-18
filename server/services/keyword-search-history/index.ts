@@ -1,12 +1,12 @@
 export {
+  classifyVideos,
   findKeywordSearch,
   saveKeywordSearch,
   refreshKeywordSearch,
-  getKeywordSearchResults,
+  getKeywordSearchData,
 } from "./keyword-search-history";
 
 export type {
   KeywordSearchResult,
   SavedKeywordSearch,
-  KeywordSearchResultResponse,
 } from "./keyword-search-history.types";

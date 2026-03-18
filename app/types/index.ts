@@ -3,11 +3,13 @@ export type Creator = {
   followers: number
 }
 
-export type SearchResult = {
+// Unified result item for both keyword search and brand explorer
+export type SearchResultItem = {
   position: number
   creator: Creator
   caption: string
   videoUrl: string
+  views: number
   isPromotion: boolean
   isAd: boolean
   isSponsored: boolean
@@ -18,47 +20,20 @@ export type SearchResult = {
   error?: string
 }
 
+// Summary stats for search results
+export type SearchSummary = {
+  totalVideos: number
+  totalInfluencers: number
+  totalReach: number
+}
+
+// Unified search response for both keyword and brand explorer
 export type SearchResponse = {
-  keyword: string
+  query: string
   searchId: string
   cached: boolean
-  results: SearchResult[]
-}
-
-export type SearchHistoryItem = {
-  keyword: string
-  timestamp: number
-  resultCount: number
-  type: 'query' | 'brand'
-}
-
-export type BrandExplorerVideo = {
-  id: string
-  creator: { handle: string; followers: number }
-  caption: string
-  views: number
-  videoUrl: string
-  confidence: number
-}
-
-export type BrandExplorerInfluencer = {
-  handle: string
-  followers: number
-  videosForBrand: number
-  totalViews: number
-}
-
-export type BrandExplorerResponse = {
-  brand: string
-  searchId: string
-  cached: boolean
-  summary: {
-    totalVideos: number
-    totalInfluencers: number
-    totalReach: number
-  }
-  influencers: BrandExplorerInfluencer[]
-  videos: BrandExplorerVideo[]
+  summary: SearchSummary
+  results: SearchResultItem[]
 }
 
 export type HistorySearchItem = {
@@ -68,11 +43,7 @@ export type HistorySearchItem = {
   createdAt: string
   updatedAt: string
   resultCount: number
-  summary: {
-    totalVideos: number
-    totalInfluencers: number
-    totalReach: number
-  } | null
+  summary: SearchSummary | null
 }
 
 export type HistoryResponse = {

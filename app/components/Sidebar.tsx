@@ -4,6 +4,7 @@ type SidebarProps = {
   history: HistorySearchItem[]
   isLoading?: boolean
   onSelectSearch: (searchId: string) => void
+  onDeleteSearch: (searchId: string) => void
   currentSearchId: string | null
 }
 
@@ -11,6 +12,7 @@ export function Sidebar({
   history,
   isLoading,
   onSelectSearch,
+  onDeleteSearch,
   currentSearchId,
 }: SidebarProps) {
   const formatTime = (dateString: string) => {
@@ -21,70 +23,83 @@ export function Sidebar({
     const diffHours = Math.floor(diffMs / 3600000)
     const diffDays = Math.floor(diffMs / 86400000)
 
-    if (diffMins < 1) return 'Just now'
-    if (diffMins < 60) return `${diffMins}m ago`
-    if (diffHours < 24) return `${diffHours}h ago`
-    if (diffDays < 7) return `${diffDays}d ago`
+    if (diffMins < 1) return 'now'
+    if (diffMins < 60) return `${diffMins}m`
+    if (diffHours < 24) return `${diffHours}h`
+    if (diffDays < 7) return `${diffDays}d`
     return date.toLocaleDateString()
   }
 
-  const getDisplayType = (type: 'keyword' | 'brand_explorer') => {
-    return type === 'brand_explorer' ? 'brand' : 'query'
-  }
-
   return (
-    <aside className="w-72 bg-gray-50 border-r border-gray-200 flex flex-col h-full">
-      <div className="p-4 border-b border-gray-200">
-        <h2 className="text-sm font-semibold text-gray-700 uppercase tracking-wide">
-          Search History
+    <aside className="w-64 bg-gray-50 border-r border-gray-200 flex flex-col h-full">
+      <div className="px-4 py-3 border-b border-gray-200">
+        <h2 className="text-xs font-medium text-gray-500 uppercase tracking-wide">
+          History
         </h2>
       </div>
 
       <div className="flex-1 overflow-auto">
         {isLoading ? (
-          <div className="p-4 text-sm text-gray-500 text-center">
-            Loading history...
+          <div className="p-4 text-xs text-gray-400 text-center">
+            Loading...
           </div>
         ) : history.length === 0 ? (
-          <div className="p-4 text-sm text-gray-500 text-center">
-            No search history yet
+          <div className="p-6 text-xs text-gray-400 text-center">
+            No searches yet
           </div>
         ) : (
-          <ul className="divide-y divide-gray-200">
+          <ul className="m-0 p-0 list-none">
             {history.map((item) => {
-              const displayType = getDisplayType(item.type)
               const isActive = currentSearchId === item.id
+              const isBrand = item.type === 'brand_explorer'
+              const isPending = item.id === 'pending'
               return (
                 <li
                   key={item.id}
-                  className={`group relative ${
-                    isActive ? 'bg-blue-50' : 'hover:bg-gray-100'
+                  className={`border-b border-gray-200 relative group ${
+                    isActive ? 'bg-white' : ''
                   }`}
                 >
                   <button
-                    onClick={() => onSelectSearch(item.id)}
-                    className="w-full text-left p-4"
+                    onClick={() => !isPending && onSelectSearch(item.id)}
+                    className={`w-full text-left px-4 py-3 pr-10 bg-transparent border-none transition-colors ${
+                      isPending ? 'cursor-default' : 'cursor-pointer'
+                    } ${
+                      isActive
+                        ? 'border-l-2 border-l-gray-800'
+                        : 'hover:bg-white'
+                    }`}
                   >
-                    <div className="flex items-center gap-2">
-                      <span className="font-medium text-gray-900 truncate">
+                    <div className="flex items-center gap-2 mb-1">
+                      <span className={`text-sm truncate ${isActive ? 'font-medium text-gray-900' : 'text-gray-700'}`}>
                         {item.query}
                       </span>
-                      <span
-                        className={`text-xs px-1.5 py-0.5 rounded ${
-                          displayType === 'brand'
-                            ? 'bg-purple-100 text-purple-700'
-                            : 'bg-gray-100 text-gray-600'
-                        }`}
-                      >
-                        {displayType === 'brand' ? 'Brand' : 'Query'}
+                      <span className="font-mono-ui text-[10px] text-gray-400 px-1 border border-gray-300 rounded">
+                        {isBrand ? 'brand' : 'query'}
                       </span>
                     </div>
-                    <div className="flex items-center gap-2 mt-1 text-xs text-gray-500">
-                      <span>{item.resultCount} results</span>
-                      <span>·</span>
-                      <span>{formatTime(item.updatedAt)}</span>
+                    <div className="font-mono-ui text-[11px] text-gray-400">
+                      {isPending ? (
+                        <span className="animate-pulse">Searching...</span>
+                      ) : (
+                        <>{item.resultCount} results · {formatTime(item.updatedAt)}</>
+                      )}
                     </div>
                   </button>
+                  {!isPending && (
+                    <button
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        onDeleteSearch(item.id)
+                      }}
+                      className="absolute right-3 top-1/2 -translate-y-1/2 w-6 h-6 bg-transparent border-none cursor-pointer text-gray-300 opacity-0 group-hover:opacity-100 hover:text-red-500 flex items-center justify-center transition-all"
+                      title="Delete"
+                    >
+                      <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                        <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M6 18L18 6M6 6l12 12" />
+                      </svg>
+                    </button>
+                  )}
                 </li>
               )
             })}

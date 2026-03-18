@@ -1,18 +1,19 @@
 import { useMutation } from '@tanstack/react-query'
 import { hc } from 'hono/client'
 import type { AppType } from '../../server/index'
-import type { BrandExplorerResponse } from '#/types'
+import type { SearchResponse } from '#/types'
 
 const client = hc<AppType>('/')
 
 type UseBrandExplorerMutationOptions = {
-  onSuccess?: (data: BrandExplorerResponse, handle: string) => void
+  onSuccess?: (data: SearchResponse, handle: string) => void
+  onError?: (error: Error) => void
 }
 
 export function useBrandExplorerMutation(options?: UseBrandExplorerMutationOptions) {
   return useMutation({
     mutationKey: ['brand-explorer'],
-    mutationFn: async (handle: string): Promise<BrandExplorerResponse> => {
+    mutationFn: async (handle: string): Promise<SearchResponse> => {
       const res = await client.api['brand-explorer'].$post({
         json: { handle },
       })
@@ -26,6 +27,9 @@ export function useBrandExplorerMutation(options?: UseBrandExplorerMutationOptio
     },
     onSuccess: (data, handle) => {
       options?.onSuccess?.(data, handle)
+    },
+    onError: (error) => {
+      options?.onError?.(error as Error)
     },
   })
 }

@@ -16,6 +16,7 @@
     "@logtape/logtape": "^2.0.4",
     "@prisma/adapter-pg": "^7.5.0",
     "@prisma/client": "^7.3.0",
+    "@radix-ui/react-dialog": "^1.1.15",
     "@tailwindcss/vite": "^4.1.18",
     "@tanstack/react-devtools": "latest",
     "@tanstack/react-query": "^5.90.0",
