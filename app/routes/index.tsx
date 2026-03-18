@@ -5,6 +5,7 @@ import type {SearchMode} from "#/components/SearchInput";
 import {SearchInput} from "#/components/SearchInput";
 import {Sidebar} from "#/components/Sidebar";
 import {DataGrid} from "#/components/DataGrid";
+import {InsightsPanel, type ViewMode} from "#/components/InsightsPanel";
 import {useHistoryQuery} from "#/hooks/useHistoryQuery";
 import {useHistoryDetailQuery} from "#/hooks/useHistoryDetailQuery";
 import {useStreamingSearch} from "#/hooks/useStreamingSearch";
@@ -18,6 +19,7 @@ export const Route = createFileRoute("/")({
 function HomePage() {
   const queryClient = useQueryClient();
   const [searchMode, setSearchMode] = useState<SearchMode>("query");
+  const [viewMode, setViewMode] = useState<ViewMode>("results");
   const [currentSearchId, setCurrentSearchId] = useState<string | null>(null);
   const [_currentSearchType, setCurrentSearchType] = useState<
     "keyword" | "brand_explorer" | null
@@ -163,6 +165,31 @@ function HomePage() {
             mode={searchMode}
             onModeChange={setSearchMode}
           />
+          {/* Results/Insights toggle */}
+          <div className="flex items-stretch border border-gray-200 rounded bg-gray-50">
+            <button
+              type="button"
+              onClick={() => setViewMode("results")}
+              className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+                viewMode === "results"
+                  ? "bg-white text-gray-900 shadow-sm"
+                  : "text-gray-500 hover:text-gray-700"
+              }`}
+            >
+              Results
+            </button>
+            <button
+              type="button"
+              onClick={() => setViewMode("insights")}
+              className={`px-3 py-1.5 text-xs font-medium transition-colors ${
+                viewMode === "insights"
+                  ? "bg-white text-gray-900 shadow-sm"
+                  : "text-gray-500 hover:text-gray-700"
+              }`}
+            >
+              Insights
+            </button>
+          </div>
         </header>
 
         {/* Error banner - fatal errors */}
@@ -179,14 +206,23 @@ function HomePage() {
           </div>
         )}
 
-        {/* Data grid */}
+        {/* Main content area */}
         <div className="flex-1 overflow-hidden">
-          <DataGrid
-            data={results}
-            keyword={keyword}
-            isLoading={isStreamingPending}
-            progress={streamingProgress}
-          />
+          {viewMode === "results" ? (
+            <DataGrid
+              data={results}
+              keyword={keyword}
+              isLoading={isStreamingPending}
+              progress={streamingProgress}
+            />
+          ) : (
+            <InsightsPanel
+              data={results}
+              keyword={keyword}
+              isLoading={isStreamingPending}
+              progress={streamingProgress}
+            />
+          )}
         </div>
       </main>
     </div>
