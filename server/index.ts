@@ -1,5 +1,6 @@
 import 'dotenv/config'
 import { Hono } from 'hono'
+import { cors } from 'hono/cors'
 import { streamSSE } from 'hono/streaming'
 import { searchTikTok, ApifyError } from './services/apify'
 import {
@@ -50,6 +51,11 @@ function toSearchResponse(data: SearchData, cached: boolean): SearchResponse {
 
 const app = new Hono()
   .basePath('/api')
+  .use('*', cors({
+    origin: ['http://localhost:3000'],
+    allowMethods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
+    allowHeaders: ['Content-Type'],
+  }))
   .post('/search', async (c) => {
     const requestId = crypto.randomUUID()
     const startTime = performance.now()

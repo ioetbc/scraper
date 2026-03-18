@@ -66,6 +66,12 @@ export function useStreamingSearch(options?: UseStreamingSearchOptions) {
   const abortControllerRef = useRef<AbortController | null>(null)
   const searchIdRef = useRef<string | null>(null)
 
+  // Stable reference to options callbacks to avoid stale closures in async code
+  const optionsRef = useRef(options)
+  useEffect(() => {
+    optionsRef.current = options
+  }, [options])
+
   // Clean up on unmount
   useEffect(() => {
     return () => {
@@ -84,6 +90,47 @@ export function useStreamingSearch(options?: UseStreamingSearchOptions) {
     setQuery(null)
   }, [])
 
+  const handleEvent = useCallback(
+    (event: StreamEvent) => {
+      switch (event.type) {
+        case 'init':
+          setSearchId(event.searchId)
+          searchIdRef.current = event.searchId
+          break
+
+        case 'video':
+          setResults((prev) => [...prev, event.data])
+          break
+
+        case 'progress':
+          setProgress({ total: event.total, completed: event.completed })
+          break
+
+        case 'complete':
+          setSummary(event.summary)
+          setIsPending(false)
+          if (searchIdRef.current) {
+            // Use ref to always call the latest callback
+            optionsRef.current?.onComplete?.(searchIdRef.current)
+          }
+          break
+
+        case 'error':
+          if (!event.videoId) {
+            // Fatal error - stop the stream
+            setError(new Error(event.message))
+            setIsPending(false)
+            optionsRef.current?.onError?.(new Error(event.message))
+          } else {
+            // Non-fatal error - track it but continue
+            setVideoErrors((prev) => [...prev, { videoId: event.videoId!, message: event.message }])
+          }
+          break
+      }
+    },
+    [] // No dependencies needed - uses refs for callbacks
+  )
+
   const startSearch = useCallback(
     async (searchTerm: string, mode: StreamingSearchMode) => {
       // Abort any existing search
@@ -95,10 +142,12 @@ export function useStreamingSearch(options?: UseStreamingSearchOptions) {
       setIsPending(true)
       setQuery(searchTerm)
 
+      // In development, connect directly to API server to avoid Vite proxy buffering SSE
+      const apiBase = import.meta.env.DEV ? 'http://localhost:8080' : ''
       const endpoint =
         mode === 'brand'
-          ? '/api/brand-explorer/stream'
-          : '/api/search/stream'
+          ? `${apiBase}/api/brand-explorer/stream`
+          : `${apiBase}/api/search/stream`
 
       try {
         const response = await fetch(endpoint, {
@@ -127,7 +176,7 @@ export function useStreamingSearch(options?: UseStreamingSearchOptions) {
           setSummary(data.summary)
           setProgress({ total: data.results.length, completed: data.results.length })
           setIsPending(false)
-          options?.onComplete?.(data.searchId)
+          optionsRef.current?.onComplete?.(data.searchId)
           return
         }
 
@@ -140,14 +189,19 @@ export function useStreamingSearch(options?: UseStreamingSearchOptions) {
         const decoder = new TextDecoder()
         let buffer = ''
 
+        console.log('[SSE] Starting to read stream...')
+
         while (true) {
           const { done, value } = await reader.read()
 
           if (done) {
+            console.log('[SSE] Stream done')
             break
           }
 
-          buffer += decoder.decode(value, { stream: true })
+          const chunk = decoder.decode(value, { stream: true })
+          console.log('[SSE] Received chunk:', chunk.substring(0, 100))
+          buffer += chunk
 
           // Process complete SSE messages
           const lines = buffer.split('\n')
@@ -161,6 +215,7 @@ export function useStreamingSearch(options?: UseStreamingSearchOptions) {
               if (data) {
                 try {
                   const event: StreamEvent = JSON.parse(data)
+                  console.log('[SSE] Parsed event:', event.type)
                   handleEvent(event)
                 } catch {
                   // Skip malformed JSON
@@ -177,51 +232,12 @@ export function useStreamingSearch(options?: UseStreamingSearchOptions) {
 
         const error = err instanceof Error ? err : new Error('Unknown error')
         setError(error)
-        options?.onError?.(error)
+        optionsRef.current?.onError?.(error)
       } finally {
         setIsPending(false)
       }
     },
-    [options, reset]
-  )
-
-  const handleEvent = useCallback(
-    (event: StreamEvent) => {
-      switch (event.type) {
-        case 'init':
-          setSearchId(event.searchId)
-          searchIdRef.current = event.searchId
-          break
-
-        case 'video':
-          setResults((prev) => [...prev, event.data])
-          break
-
-        case 'progress':
-          setProgress({ total: event.total, completed: event.completed })
-          break
-
-        case 'complete':
-          setSummary(event.summary)
-          setIsPending(false)
-          if (searchIdRef.current) {
-            options?.onComplete?.(searchIdRef.current)
-          }
-          break
-
-        case 'error':
-          if (!event.videoId) {
-            // Fatal error - stop the stream
-            setError(new Error(event.message))
-            setIsPending(false)
-          } else {
-            // Non-fatal error - track it but continue
-            setVideoErrors((prev) => [...prev, { videoId: event.videoId!, message: event.message }])
-          }
-          break
-      }
-    },
-    [options]
+    [reset, handleEvent]
   )
 
   const cancel = useCallback(() => {
