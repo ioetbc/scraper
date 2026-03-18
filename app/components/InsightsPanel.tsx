@@ -1,5 +1,10 @@
 import {useMemo} from "react";
-import type {SearchResultItem, ContentPatternsData} from "#/types";
+import type {
+  SearchResultItem,
+  ContentPatternsData,
+  OpportunitySignalsData,
+  SuggestedAction,
+} from "#/types";
 import {useInsights} from "#/hooks/useInsights";
 
 export type ViewMode = "results" | "insights";
@@ -179,7 +184,7 @@ function MarketSnapshot({
       <h3 className="text-sm font-semibold text-gray-800 mb-3">
         Market Snapshot
       </h3>
-      <div className="grid grid-cols-2 gap-4">
+      <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
         <div className="space-y-1">
           <p className="text-xs text-gray-500">Active Brands</p>
           <p className="text-xl font-semibold text-gray-900">
@@ -454,6 +459,150 @@ function ContentPatterns({
   );
 }
 
+function OpportunitySignals({
+  data,
+  isLoading,
+}: {
+  data: OpportunitySignalsData | null;
+  isLoading: boolean;
+}) {
+  if (isLoading || !data) {
+    return (
+      <div className="bg-white border border-gray-200 rounded-lg p-4">
+        <h3 className="text-sm font-semibold text-gray-800 mb-3">
+          Opportunity Signals
+        </h3>
+        <div className="space-y-3">
+          <div className="h-4 bg-gray-200 rounded animate-pulse w-24" />
+          <div className="space-y-2">
+            {[1, 2, 3].map((i) => (
+              <div
+                key={i}
+                className="h-4 bg-gray-200 rounded animate-pulse"
+                style={{width: `${50 + i * 15}%`}}
+              />
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  const saturationColors = {
+    low: "bg-green-100 text-green-800",
+    medium: "bg-yellow-100 text-yellow-800",
+    high: "bg-red-100 text-red-800",
+  };
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-lg p-4">
+      <h3 className="text-sm font-semibold text-gray-800 mb-3">
+        Opportunity Signals
+      </h3>
+
+      {/* Saturation Level */}
+      <div className="mb-4">
+        <span className="text-xs text-gray-500">Market Saturation: </span>
+        <span
+          className={`text-xs font-medium px-2 py-0.5 rounded ${saturationColors[data.saturationLevel]}`}
+        >
+          {data.saturationLevel.charAt(0).toUpperCase() +
+            data.saturationLevel.slice(1)}
+        </span>
+      </div>
+
+      {/* Market Gaps */}
+      <div className="mb-4">
+        <h4 className="text-xs font-medium text-gray-500 mb-2">Market Gaps</h4>
+        <ul className="space-y-1">
+          {data.marketGaps.map((gap, i) => (
+            <li key={i} className="text-sm text-gray-700">
+              {gap}
+            </li>
+          ))}
+        </ul>
+      </div>
+
+      {/* Emerging Opportunities */}
+      <div>
+        <h4 className="text-xs font-medium text-gray-500 mb-2">
+          Emerging Opportunities
+        </h4>
+        <ul className="space-y-1">
+          {data.emergingOpportunities.map((opp, i) => (
+            <li key={i} className="text-sm text-gray-700">
+              {opp}
+            </li>
+          ))}
+        </ul>
+      </div>
+    </div>
+  );
+}
+
+function SuggestedActions({
+  actions,
+  isLoading,
+}: {
+  actions: SuggestedAction[] | null;
+  isLoading: boolean;
+}) {
+  if (isLoading || !actions) {
+    return (
+      <div className="bg-white border border-gray-200 rounded-lg p-4 md:col-span-2">
+        <h3 className="text-sm font-semibold text-gray-800 mb-3">
+          Suggested Actions
+        </h3>
+        <div className="space-y-3">
+          {[1, 2, 3].map((i) => (
+            <div key={i} className="space-y-1">
+              <div
+                className="h-4 bg-gray-200 rounded animate-pulse"
+                style={{width: `${60 + i * 10}%`}}
+              />
+              <div
+                className="h-3 bg-gray-100 rounded animate-pulse"
+                style={{width: `${70 + i * 8}%`}}
+              />
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
+  const priorityColors = {
+    high: "bg-red-100 text-red-800",
+    medium: "bg-yellow-100 text-yellow-800",
+    low: "bg-gray-100 text-gray-800",
+  };
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-lg p-4 md:col-span-2">
+      <h3 className="text-sm font-semibold text-gray-800 mb-3">
+        Suggested Actions
+      </h3>
+      <div className="space-y-3">
+        {actions.map((action, i) => (
+          <div key={i} className="border-l-2 border-gray-200 pl-3">
+            <div className="flex items-start gap-2">
+              <span
+                className={`text-xs font-medium px-1.5 py-0.5 rounded shrink-0 ${priorityColors[action.priority]}`}
+              >
+                {action.priority}
+              </span>
+              <p className="text-sm text-gray-900">{action.action}</p>
+            </div>
+            <p className="text-xs text-gray-500 mt-1 ml-12">
+              {action.rationale}
+            </p>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
 export function InsightsPanel({
   data,
   keyword,
@@ -515,11 +664,13 @@ export function InsightsPanel({
 
       {/* Grid layout for blocks */}
       <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {/* Market Snapshot Block */}
-        <MarketSnapshot
-          data={snapshot}
-          isLoading={isLoading && data.length === 0}
-        />
+        {/* Market Snapshot Block - spans full width */}
+        <div className="md:col-span-2">
+          <MarketSnapshot
+            data={snapshot}
+            isLoading={isLoading && data.length === 0}
+          />
+        </div>
 
         {/* Brand Breakdown Block */}
         <BrandBreakdown brands={brandBreakdown} />
@@ -530,18 +681,31 @@ export function InsightsPanel({
           likelySponsored={influencerClusters.likelySponsored}
         />
 
-        {/* Content Patterns Block (LLM-powered) */}
+        {/* LLM-powered blocks - only shown after streaming completes */}
         {shouldFetchInsights && (
-          <ContentPatterns
-            data={insights?.contentPatterns ?? null}
-            isLoading={isInsightsLoading}
-            error={insightsError}
-            onRetry={() => refetchInsights()}
-          />
+          <>
+            {/* Content Patterns Block */}
+            <ContentPatterns
+              data={insights?.contentPatterns ?? null}
+              isLoading={isInsightsLoading}
+              error={insightsError}
+              onRetry={() => refetchInsights()}
+            />
+
+            {/* Opportunity Signals Block */}
+            <OpportunitySignals
+              data={insights?.opportunitySignals ?? null}
+              isLoading={isInsightsLoading}
+            />
+
+            {/* Suggested Actions Block - spans full width */}
+            <SuggestedActions
+              actions={insights?.suggestedActions ?? null}
+              isLoading={isInsightsLoading}
+            />
+          </>
         )}
       </div>
-
-      {/* Phase 4+ will add Opportunity Signals, Suggested Actions */}
     </div>
   );
 }
