@@ -53,10 +53,16 @@ declare module "@tanstack/react-table" {
   }
 }
 
+type StreamingProgress = {
+  total: number;
+  completed: number;
+};
+
 type DataGridProps = {
   data: SearchResultItem[];
   keyword: string | null;
   isLoading?: boolean;
+  progress?: StreamingProgress | null;
 };
 
 const columnHelper = createColumnHelper<SearchResultItem>();
@@ -87,6 +93,7 @@ export function DataGrid({
   data,
   keyword,
   isLoading,
+  progress,
 }: DataGridProps) {
   const [sorting, setSorting] = useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
@@ -238,11 +245,18 @@ export function DataGrid({
     getSortedRowModel: getSortedRowModel(),
   });
 
-  if (isLoading) {
+  // Show loading state only if we have no data yet
+  if (isLoading && data.length === 0) {
     return (
       <div className="flex flex-col items-center justify-center h-full">
         <div className="text-sm text-gray-500 mb-1">Searching...</div>
-        <div className="text-xs text-gray-400">This may take a moment</div>
+        {progress ? (
+          <div className="text-xs text-gray-400">
+            Processing {progress.completed} of {progress.total} videos
+          </div>
+        ) : (
+          <div className="text-xs text-gray-400">This may take a moment</div>
+        )}
       </div>
     );
   }
@@ -275,6 +289,11 @@ export function DataGrid({
           Showing <span className="font-medium text-gray-700">{table.getFilteredRowModel().rows.length}</span> of{" "}
           <span className="font-medium text-gray-700">{data.length}</span>
         </span>
+        {isLoading && progress && (
+          <span className="text-blue-600">
+            Processing {progress.completed} of {progress.total} videos...
+          </span>
+        )}
       </div>
 
       {/* Table */}

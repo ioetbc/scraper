@@ -1,5 +1,5 @@
 import {createFileRoute} from "@tanstack/react-router";
-import {useState, useMemo} from "react";
+import {useState, useMemo, useEffect} from "react";
 import {useQueryClient} from "@tanstack/react-query";
 import type {SearchMode} from "#/components/SearchInput";
 import {SearchInput} from "#/components/SearchInput";
@@ -8,7 +8,7 @@ import {DataGrid} from "#/components/DataGrid";
 import {useHistoryQuery} from "#/hooks/useHistoryQuery";
 import {useHistoryDetailQuery} from "#/hooks/useHistoryDetailQuery";
 import {useSearchMutation} from "#/hooks/useSearchMutation";
-import {useBrandExplorerMutation} from "#/hooks/useBrandExplorerMutation";
+import {useStreamingSearch} from "#/hooks/useStreamingSearch";
 import {useDeleteSearchMutation} from "#/hooks/useDeleteSearchMutation";
 import type {SearchResultItem, HistorySearchItem} from "#/types";
 
@@ -54,16 +54,19 @@ function HomePage() {
     },
   });
 
+  // Streaming brand explorer
   const {
-    mutate: exploreBrand,
-    data: brandData,
+    startSearch: startBrandSearch,
+    results: streamingResults,
+    progress: streamingProgress,
+    searchId: streamingSearchId,
     isPending: isBrandPending,
     error: brandError,
-  } = useBrandExplorerMutation({
-    onSuccess: (result) => {
+  } = useStreamingSearch({
+    onComplete: (searchId) => {
       // Invalidate history to refresh the list
       queryClient.invalidateQueries({queryKey: ["history"]});
-      setCurrentSearchId(result.searchId);
+      setCurrentSearchId(searchId);
       setCurrentSearchType("brand_explorer");
       setPendingSearch(null);
     },
@@ -71,6 +74,13 @@ function HomePage() {
       setPendingSearch(null);
     },
   });
+
+  // Update currentSearchId when streaming searchId becomes available
+  useEffect(() => {
+    if (streamingSearchId && currentSearchId === "pending") {
+      setCurrentSearchId(streamingSearchId);
+    }
+  }, [streamingSearchId, currentSearchId]);
 
   const {mutate: deleteSearch} = useDeleteSearchMutation({
     onSuccess: (deletedId) => {
@@ -107,9 +117,9 @@ function HomePage() {
   const keyword = currentSearch?.query ?? pendingSearch?.query ?? null;
 
   const results: SearchResultItem[] = useMemo(() => {
-    // If we just ran a new search, use that data
-    if (currentSearchType === "brand_explorer" && brandData) {
-      return brandData.results;
+    // If we're streaming brand explorer results, use those
+    if (currentSearchType === "brand_explorer" && streamingResults.length > 0) {
+      return streamingResults;
     }
     if (currentSearchType === "keyword" && searchData) {
       return searchData.results;
@@ -121,7 +131,7 @@ function HomePage() {
     }
 
     return [];
-  }, [currentSearchType, brandData, searchData, historyDetail]);
+  }, [currentSearchType, streamingResults, searchData, historyDetail]);
 
   const handleSearch = (searchTerm: string, mode: SearchMode) => {
     const searchType = mode === "brand" ? "brand_explorer" : "keyword";
@@ -131,7 +141,7 @@ function HomePage() {
     setCurrentSearchId("pending");
     setCurrentSearchType(searchType);
     if (mode === "brand") {
-      exploreBrand(searchTerm);
+      startBrandSearch(searchTerm, "brand");
     } else {
       search(searchTerm);
     }
@@ -189,6 +199,7 @@ function HomePage() {
             data={results}
             keyword={keyword}
             isLoading={isSearchPending || isBrandPending}
+            progress={streamingProgress}
           />
         </div>
       </main>
