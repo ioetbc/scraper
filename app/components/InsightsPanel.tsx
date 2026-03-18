@@ -180,7 +180,7 @@ function MarketSnapshot({
   isLoading?: boolean;
 }) {
   return (
-    <div className="bg-white border border-gray-200 rounded-lg p-4">
+    <div className="bg-white border border-gray-200 rounded-lg p-4 min-h-[100px]">
       <h3 className="text-sm font-semibold text-gray-800 mb-3">
         Market Snapshot
       </h3>
@@ -238,10 +238,40 @@ function MarketSnapshot({
   );
 }
 
-function BrandBreakdown({brands}: {brands: BrandBreakdownItem[]}) {
+function BrandBreakdown({
+  brands,
+  isLoading,
+}: {
+  brands: BrandBreakdownItem[];
+  isLoading?: boolean;
+}) {
+  if (isLoading) {
+    return (
+      <div className="bg-white border border-gray-200 rounded-lg p-4 min-h-[180px]">
+        <h3 className="text-sm font-semibold text-gray-800 mb-3">
+          Brand Breakdown
+        </h3>
+        <div className="space-y-2">
+          {[1, 2, 3, 4].map((i) => (
+            <div key={i} className="flex items-center justify-between">
+              <div
+                className="h-4 bg-gray-200 rounded animate-pulse"
+                style={{width: `${40 + i * 10}%`}}
+              />
+              <div className="flex items-center gap-2">
+                <div className="h-4 w-6 bg-gray-200 rounded animate-pulse" />
+                <div className="h-4 w-10 bg-gray-200 rounded animate-pulse" />
+              </div>
+            </div>
+          ))}
+        </div>
+      </div>
+    );
+  }
+
   if (brands.length === 0) {
     return (
-      <div className="bg-white border border-gray-200 rounded-lg p-4">
+      <div className="bg-white border border-gray-200 rounded-lg p-4 min-h-[180px]">
         <h3 className="text-sm font-semibold text-gray-800 mb-3">
           Brand Breakdown
         </h3>
@@ -251,7 +281,7 @@ function BrandBreakdown({brands}: {brands: BrandBreakdownItem[]}) {
   }
 
   return (
-    <div className="bg-white border border-gray-200 rounded-lg p-4">
+    <div className="bg-white border border-gray-200 rounded-lg p-4 min-h-[180px]">
       <h3 className="text-sm font-semibold text-gray-800 mb-3">
         Brand Breakdown
       </h3>
@@ -279,15 +309,59 @@ function BrandBreakdown({brands}: {brands: BrandBreakdownItem[]}) {
 function InfluencerClusters({
   topByReach,
   likelySponsored,
+  isLoading,
 }: {
   topByReach: InfluencerItem[];
   likelySponsored: InfluencerItem[];
+  isLoading?: boolean;
 }) {
+  if (isLoading) {
+    return (
+      <div className="bg-white border border-gray-200 rounded-lg p-4 min-h-[240px]">
+        <h3 className="text-sm font-semibold text-gray-800 mb-3">
+          Influencer Clusters
+        </h3>
+        <div className="mb-4">
+          <h4 className="text-xs font-medium text-gray-500 mb-2">
+            Top by Reach
+          </h4>
+          <div className="space-y-2">
+            {[1, 2, 3].map((i) => (
+              <div key={i} className="flex items-center justify-between">
+                <div
+                  className="h-4 bg-gray-200 rounded animate-pulse"
+                  style={{width: `${50 + i * 10}%`}}
+                />
+                <div className="h-4 w-12 bg-gray-200 rounded animate-pulse" />
+              </div>
+            ))}
+          </div>
+        </div>
+        <div>
+          <h4 className="text-xs font-medium text-gray-500 mb-2">
+            Likely Sponsored
+          </h4>
+          <div className="space-y-2">
+            {[1, 2].map((i) => (
+              <div key={i} className="flex items-center justify-between">
+                <div
+                  className="h-4 bg-gray-200 rounded animate-pulse"
+                  style={{width: `${40 + i * 15}%`}}
+                />
+                <div className="h-4 w-12 bg-gray-200 rounded animate-pulse" />
+              </div>
+            ))}
+          </div>
+        </div>
+      </div>
+    );
+  }
+
   const hasNoData = topByReach.length === 0;
 
   if (hasNoData) {
     return (
-      <div className="bg-white border border-gray-200 rounded-lg p-4">
+      <div className="bg-white border border-gray-200 rounded-lg p-4 min-h-[240px]">
         <h3 className="text-sm font-semibold text-gray-800 mb-3">
           Influencer Clusters
         </h3>
@@ -297,7 +371,7 @@ function InfluencerClusters({
   }
 
   return (
-    <div className="bg-white border border-gray-200 rounded-lg p-4">
+    <div className="bg-white border border-gray-200 rounded-lg p-4 min-h-[240px]">
       <h3 className="text-sm font-semibold text-gray-800 mb-3">
         Influencer Clusters
       </h3>
@@ -373,7 +447,7 @@ function ContentPatterns({
 }) {
   if (error) {
     return (
-      <div className="bg-white border border-gray-200 rounded-lg p-4 md:col-span-2">
+      <div className="bg-white border border-gray-200 rounded-lg p-4 md:col-span-2 min-h-[140px]">
         <h3 className="text-sm font-semibold text-gray-800 mb-3">
           Content Patterns
         </h3>
@@ -394,7 +468,7 @@ function ContentPatterns({
 
   if (isLoading || !data) {
     return (
-      <div className="bg-white border border-gray-200 rounded-lg p-4 md:col-span-2">
+      <div className="bg-white border border-gray-200 rounded-lg p-4 md:col-span-2 min-h-[140px]">
         <h3 className="text-sm font-semibold text-gray-800 mb-3">
           Content Patterns
         </h3>
@@ -429,7 +503,7 @@ function ContentPatterns({
   }
 
   return (
-    <div className="bg-white border border-gray-200 rounded-lg p-4 md:col-span-2">
+    <div className="bg-white border border-gray-200 rounded-lg p-4 md:col-span-2 min-h-[140px]">
       <h3 className="text-sm font-semibold text-gray-800 mb-3">
         Content Patterns
       </h3>
@@ -468,7 +542,7 @@ function OpportunitySignals({
 }) {
   if (isLoading || !data) {
     return (
-      <div className="bg-white border border-gray-200 rounded-lg p-4">
+      <div className="bg-white border border-gray-200 rounded-lg p-4 min-h-[200px]">
         <h3 className="text-sm font-semibold text-gray-800 mb-3">
           Opportunity Signals
         </h3>
@@ -495,7 +569,7 @@ function OpportunitySignals({
   };
 
   return (
-    <div className="bg-white border border-gray-200 rounded-lg p-4">
+    <div className="bg-white border border-gray-200 rounded-lg p-4 min-h-[200px]">
       <h3 className="text-sm font-semibold text-gray-800 mb-3">
         Opportunity Signals
       </h3>
@@ -549,7 +623,7 @@ function SuggestedActions({
 }) {
   if (isLoading || !actions) {
     return (
-      <div className="bg-white border border-gray-200 rounded-lg p-4 md:col-span-2">
+      <div className="bg-white border border-gray-200 rounded-lg p-4 md:col-span-2 min-h-[160px]">
         <h3 className="text-sm font-semibold text-gray-800 mb-3">
           Suggested Actions
         </h3>
@@ -578,7 +652,7 @@ function SuggestedActions({
   };
 
   return (
-    <div className="bg-white border border-gray-200 rounded-lg p-4 md:col-span-2">
+    <div className="bg-white border border-gray-200 rounded-lg p-4 md:col-span-2 min-h-[160px]">
       <h3 className="text-sm font-semibold text-gray-800 mb-3">
         Suggested Actions
       </h3>
@@ -673,16 +747,17 @@ export function InsightsPanel({
         </div>
 
         {/* Brand Breakdown Block */}
-        <BrandBreakdown brands={brandBreakdown} />
+        <BrandBreakdown brands={brandBreakdown} isLoading={isLoading} />
 
         {/* Influencer Clusters Block */}
         <InfluencerClusters
           topByReach={influencerClusters.topByReach}
           likelySponsored={influencerClusters.likelySponsored}
+          isLoading={isLoading}
         />
 
         {/* LLM-powered blocks - only shown after streaming completes */}
-        {shouldFetchInsights && (
+        {shouldFetchInsights ? (
           <>
             {/* Content Patterns Block */}
             <ContentPatterns
@@ -704,7 +779,19 @@ export function InsightsPanel({
               isLoading={isInsightsLoading}
             />
           </>
-        )}
+        ) : !isLoading && data.length > 0 && data.length < MIN_RESULTS_FOR_LLM ? (
+          /* Insufficient data message */
+          <div className="md:col-span-2 bg-gray-50 border border-gray-200 rounded-lg p-4">
+            <div className="text-center py-4">
+              <p className="text-sm text-gray-600">
+                Need at least {MIN_RESULTS_FOR_LLM} results for AI-powered insights
+              </p>
+              <p className="text-xs text-gray-500 mt-1">
+                Currently analyzing {data.length} video{data.length !== 1 ? "s" : ""}
+              </p>
+            </div>
+          </div>
+        ) : null}
       </div>
     </div>
   );
