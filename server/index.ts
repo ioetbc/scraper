@@ -17,6 +17,9 @@ import {
   saveKeywordSearch,
   refreshKeywordSearch,
   getKeywordSearchData,
+  createKeywordSearchRecord,
+  finalizeKeywordSearch,
+  classifyVideosStreaming,
 } from './services/keyword-search-history'
 import {
   findBrandExplorerSearch,
@@ -124,6 +127,113 @@ const app = new Hono()
         statusCode: 500,
         durationMs,
         errorType: "internal",
+        error: error instanceof Error ? error.message : String(error),
+      })
+      return c.json({ error: 'Internal server error' }, 500)
+    }
+  })
+  .post('/search/stream', async (c) => {
+    const requestId = crypto.randomUUID()
+    const startTime = performance.now()
+
+    try {
+      const body = await c.req.json()
+      const { keyword } = body
+
+      if (!keyword || typeof keyword !== 'string') {
+        searchLogger.warn("Invalid streaming search request", {
+          requestId,
+          error: "keyword_required",
+          statusCode: 400,
+        })
+        return c.json({ error: 'keyword is required' }, 400)
+      }
+
+      // Check cache first - if cached, return JSON immediately (no streaming)
+      const existingSearch = await findKeywordSearch(keyword)
+      if (existingSearch) {
+        const cachedData = await getKeywordSearchData(existingSearch.id)
+        const durationMs = Math.round(performance.now() - startTime)
+
+        searchLogger.info("Streaming search request served from cache", {
+          requestId,
+          keyword,
+          statusCode: 200,
+          durationMs,
+          cached: true,
+          searchId: existingSearch.id,
+        })
+
+        return c.json({
+          query: keyword,
+          searchId: existingSearch.id,
+          cached: true,
+          summary: cachedData.summary,
+          results: cachedData.results,
+        })
+      }
+
+      // Not cached - stream results
+      return streamSSE(c, async (stream) => {
+        // Create search record upfront to get searchId
+        const searchId = await createKeywordSearchRecord(keyword)
+
+        // Send init event with searchId immediately
+        await sendInit(stream, searchId)
+
+        try {
+          // Fetch videos from TikTok
+          const videos = await searchTikTok(keyword)
+
+          // Run streaming classification
+          const summary = await classifyVideosStreaming(
+            videos,
+            searchId,
+            {
+              onVideo: async (result, progress) => {
+                await sendVideo(stream, result)
+                await sendProgress(stream, progress.total, progress.completed)
+              },
+              onError: async (videoId, message) => {
+                await sendError(stream, message, videoId)
+              },
+            }
+          )
+
+          // Finalize the search in DB
+          await finalizeKeywordSearch(searchId)
+
+          // Send complete event
+          await sendComplete(stream, summary)
+
+          const durationMs = Math.round(performance.now() - startTime)
+          searchLogger.info("Streaming search completed", {
+            requestId,
+            keyword,
+            searchId,
+            durationMs,
+            totalVideos: summary.totalVideos,
+            totalInfluencers: summary.totalInfluencers,
+            totalReach: summary.totalReach,
+          })
+        } catch (error) {
+          const durationMs = Math.round(performance.now() - startTime)
+          searchLogger.error("Streaming search failed", {
+            requestId,
+            keyword,
+            searchId,
+            durationMs,
+            error: error instanceof Error ? error.message : String(error),
+          })
+
+          await sendError(stream, error instanceof Error ? error.message : 'Unknown error')
+        }
+      })
+    } catch (error) {
+      const durationMs = Math.round(performance.now() - startTime)
+      searchLogger.error("Streaming search failed - setup error", {
+        requestId,
+        durationMs,
         error: error instanceof Error ? error.message : String(error),
       })
       return c.json({ error: 'Internal server error' }, 500)

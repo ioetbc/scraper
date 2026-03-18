@@ -7,7 +7,6 @@ import {Sidebar} from "#/components/Sidebar";
 import {DataGrid} from "#/components/DataGrid";
 import {useHistoryQuery} from "#/hooks/useHistoryQuery";
 import {useHistoryDetailQuery} from "#/hooks/useHistoryDetailQuery";
-import {useSearchMutation} from "#/hooks/useSearchMutation";
 import {useStreamingSearch} from "#/hooks/useStreamingSearch";
 import {useDeleteSearchMutation} from "#/hooks/useDeleteSearchMutation";
 import type {SearchResultItem, HistorySearchItem} from "#/types";
@@ -20,7 +19,7 @@ function HomePage() {
   const queryClient = useQueryClient();
   const [searchMode, setSearchMode] = useState<SearchMode>("query");
   const [currentSearchId, setCurrentSearchId] = useState<string | null>(null);
-  const [currentSearchType, setCurrentSearchType] = useState<
+  const [_currentSearchType, setCurrentSearchType] = useState<
     "keyword" | "brand_explorer" | null
   >(null);
   const [pendingSearch, setPendingSearch] = useState<{
@@ -36,39 +35,20 @@ function HomePage() {
   const {data: historyDetail, isLoading: isDetailLoading} =
     useHistoryDetailQuery(currentSearchId);
 
+  // Unified streaming search for both keyword and brand explorer
   const {
-    mutate: search,
-    data: searchData,
-    isPending: isSearchPending,
-    error: searchError,
-  } = useSearchMutation({
-    onSuccess: (result) => {
-      // Invalidate history to refresh the list
-      queryClient.invalidateQueries({queryKey: ["history"]});
-      setCurrentSearchId(result.searchId);
-      setCurrentSearchType("keyword");
-      setPendingSearch(null);
-    },
-    onError: () => {
-      setPendingSearch(null);
-    },
-  });
-
-  // Streaming brand explorer
-  const {
-    startSearch: startBrandSearch,
+    startSearch,
     results: streamingResults,
     progress: streamingProgress,
     searchId: streamingSearchId,
-    isPending: isBrandPending,
-    error: brandError,
+    isPending: isStreamingPending,
+    error: streamingError,
     videoErrors,
   } = useStreamingSearch({
     onComplete: (searchId) => {
       // Invalidate history to refresh the list
       queryClient.invalidateQueries({queryKey: ["history"]});
       setCurrentSearchId(searchId);
-      setCurrentSearchType("brand_explorer");
       setPendingSearch(null);
     },
     onError: () => {
@@ -80,8 +60,12 @@ function HomePage() {
   useEffect(() => {
     if (streamingSearchId && currentSearchId === "pending") {
       setCurrentSearchId(streamingSearchId);
+      // Set the search type based on what mode we're in
+      if (pendingSearch) {
+        setCurrentSearchType(pendingSearch.type);
+      }
     }
-  }, [streamingSearchId, currentSearchId]);
+  }, [streamingSearchId, currentSearchId, pendingSearch]);
 
   const {mutate: deleteSearch} = useDeleteSearchMutation({
     onSuccess: (deletedId) => {
@@ -93,8 +77,8 @@ function HomePage() {
     },
   });
 
-  const isPending = isSearchPending || isBrandPending || isDetailLoading;
-  const error = searchError || brandError;
+  const isPending = isStreamingPending || isDetailLoading;
+  const error = streamingError;
 
   // Create optimistic history list with pending search at top
   const displayHistory: HistorySearchItem[] = useMemo(() => {
@@ -118,12 +102,9 @@ function HomePage() {
   const keyword = currentSearch?.query ?? pendingSearch?.query ?? null;
 
   const results: SearchResultItem[] = useMemo(() => {
-    // If we're streaming brand explorer results, use those
-    if (currentSearchType === "brand_explorer" && streamingResults.length > 0) {
+    // If we have streaming results (from either brand or keyword search), use those
+    if (streamingResults.length > 0) {
       return streamingResults;
-    }
-    if (currentSearchType === "keyword" && searchData) {
-      return searchData.results;
     }
 
     // Otherwise, use data from history detail query
@@ -132,7 +113,7 @@ function HomePage() {
     }
 
     return [];
-  }, [currentSearchType, streamingResults, searchData, historyDetail]);
+  }, [streamingResults, historyDetail]);
 
   const handleSearch = (searchTerm: string, mode: SearchMode) => {
     const searchType = mode === "brand" ? "brand_explorer" : "keyword";
@@ -141,11 +122,8 @@ function HomePage() {
     setPendingSearch({query: searchTerm, type: searchType});
     setCurrentSearchId("pending");
     setCurrentSearchType(searchType);
-    if (mode === "brand") {
-      startBrandSearch(searchTerm, "brand");
-    } else {
-      search(searchTerm);
-    }
+    // Use unified streaming search for both modes
+    startSearch(searchTerm, mode === "brand" ? "brand" : "keyword");
   };
 
   const handleSelectFromHistory = (searchId: string) => {
@@ -195,7 +173,7 @@ function HomePage() {
         )}
 
         {/* Warning banner - non-fatal video errors */}
-        {videoErrors.length > 0 && !isBrandPending && (
+        {videoErrors.length > 0 && !isStreamingPending && (
           <div className="px-4 py-2 bg-yellow-50 border-b border-yellow-200 text-yellow-700 text-xs">
             {videoErrors.length} video{videoErrors.length > 1 ? "s" : ""} failed to classify
           </div>
@@ -206,7 +184,7 @@ function HomePage() {
           <DataGrid
             data={results}
             keyword={keyword}
-            isLoading={isSearchPending || isBrandPending}
+            isLoading={isStreamingPending}
             progress={streamingProgress}
           />
         </div>

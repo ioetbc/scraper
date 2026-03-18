@@ -1,7 +1,7 @@
 import { prisma, PLACEHOLDER_USER_ID } from "../../lib/prisma";
 import { classifyVideo } from "../classifier";
 import type { TikTokVideo } from "../apify";
-import type { KeywordSearchResult, SavedKeywordSearch } from "./keyword-search-history.types";
+import type { KeywordSearchResult, SavedKeywordSearch, KeywordStreamingCallbacks } from "./keyword-search-history.types";
 import type { SearchResultItem, SearchSummary, SearchData } from "../../lib/response";
 
 /**
@@ -316,4 +316,164 @@ async function createVideoForSearch(searchId: string, video: KeywordSearchResult
       },
     },
   });
+}
+
+// ============================================================================
+// Streaming-specific functions for incremental DB writes
+// ============================================================================
+
+/**
+ * Creates a Search record at stream start to get searchId immediately.
+ */
+export async function createKeywordSearchRecord(query: string): Promise<string> {
+  const normalizedQuery = query.toLowerCase();
+
+  const search = await prisma.search.create({
+    data: {
+      user: {
+        connectOrCreate: {
+          where: { id: PLACEHOLDER_USER_ID },
+          create: { id: PLACEHOLDER_USER_ID },
+        },
+      },
+      type: "keyword",
+      query: normalizedQuery,
+    },
+  });
+
+  return search.id;
+}
+
+/**
+ * Saves a single video and search result during streaming.
+ */
+export async function saveStreamingKeywordResult(
+  searchId: string,
+  video: TikTokVideo,
+  classification: { isPromotion: boolean; brand: string | null; confidence: number; signals: string[]; tier: 1 | 2 | null } | null,
+  position: number,
+  error?: string
+): Promise<SearchResultItem> {
+  const dbVideo = await createVideoForSearch(searchId, video);
+
+  const isPromotion = video.isAd || video.isSponsored || (classification?.isPromotion ?? false);
+  let brand = classification?.brand ?? null;
+  if (isPromotion && !brand) {
+    brand = 'NOT_FOUND';
+  }
+
+  await prisma.searchResult.create({
+    data: {
+      searchId,
+      videoId: dbVideo.id,
+      position,
+      isPromotion,
+      brand,
+      confidence: classification?.confidence ?? 0,
+      signals: classification?.signals ?? [],
+      tier: classification?.tier ?? null,
+      error: error ?? null,
+    },
+  });
+
+  return {
+    position: position + 1,
+    creator: {
+      handle: video.creator.handle,
+      followers: video.creator.followers,
+      avatarUrl: video.creator.avatarUrl,
+    },
+    caption: video.caption,
+    videoUrl: video.videoUrl,
+    views: video.stats.views,
+    isPromotion,
+    isAd: video.isAd,
+    isSponsored: video.isSponsored,
+    brand,
+    confidence: classification?.confidence ?? 0,
+    signals: classification?.signals ?? [],
+    tier: classification?.tier ?? null,
+    error,
+  };
+}
+
+/**
+ * Finalizes a streaming keyword search by updating timestamps.
+ */
+export async function finalizeKeywordSearch(searchId: string): Promise<void> {
+  await prisma.search.update({
+    where: { id: searchId },
+    data: { updatedAt: new Date() },
+  });
+}
+
+/**
+ * Streaming version of classifyVideos that calls callbacks after each classification.
+ * Returns summary stats after all videos are processed.
+ */
+export async function classifyVideosStreaming(
+  videos: TikTokVideo[],
+  searchId: string,
+  callbacks: KeywordStreamingCallbacks
+): Promise<SearchSummary> {
+  const total = videos.length;
+  const creators = new Set<string>();
+  let totalReach = 0;
+  let videoCount = 0;
+
+  for (let i = 0; i < videos.length; i++) {
+    const video = videos[i];
+
+    try {
+      const classification = await classifyVideo({
+        caption: video.caption,
+        mentions: video.mentions,
+        hashtags: video.hashtags,
+        isAd: video.isAd,
+        isSponsored: video.isSponsored,
+      });
+
+      // Save to DB and get SearchResultItem
+      const resultItem = await saveStreamingKeywordResult(
+        searchId,
+        video,
+        classification,
+        i
+      );
+
+      // Track stats
+      creators.add(video.creator.handle);
+      totalReach += video.creator.followers;
+      videoCount++;
+
+      // Stream to client
+      await callbacks.onVideo(resultItem, { total, completed: i + 1 });
+    } catch (error) {
+      // Save failed result to DB
+      const resultItem = await saveStreamingKeywordResult(
+        searchId,
+        video,
+        null,
+        i,
+        "Classification failed"
+      );
+
+      // Track stats even for failed videos
+      creators.add(video.creator.handle);
+      totalReach += video.creator.followers;
+      videoCount++;
+
+      // Stream to client (with error)
+      await callbacks.onVideo(resultItem, { total, completed: i + 1 });
+
+      // Also emit error event
+      await callbacks.onError(video.id, error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  return {
+    totalVideos: videoCount,
+    totalInfluencers: creators.size,
+    totalReach,
+  };
 }
