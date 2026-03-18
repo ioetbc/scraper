@@ -1,6 +1,13 @@
 import 'dotenv/config'
 import { Hono } from 'hono'
+import { streamSSE } from 'hono/streaming'
 import { searchTikTok, ApifyError } from './services/apify'
+import {
+  sendInit,
+  sendVideo,
+  sendProgress,
+  sendComplete,
+} from './services/streaming'
 import { exploreBrand, BrandExplorerError } from './services/brand-explorer'
 import { searchLogger, brandExplorerLogger } from './logger'
 import {
@@ -203,6 +210,81 @@ const app = new Hono()
       })
       return c.json({ error: 'Internal server error' }, 500)
     }
+  })
+  .post('/brand-explorer/stream', async (c) => {
+    // Phase 1: Minimal SSE endpoint with fake data to validate streaming infrastructure
+    return streamSSE(c, async (stream) => {
+      const mockSearchId = crypto.randomUUID()
+
+      // Send init event with searchId
+      await sendInit(stream, mockSearchId)
+
+      // Simulate delay between events
+      const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
+
+      // Mock video data
+      const mockVideos = [
+        {
+          position: 1,
+          creator: { handle: 'creator1', followers: 50000, avatarUrl: null },
+          caption: 'Check out this amazing product! #sponsored',
+          videoUrl: 'https://tiktok.com/@creator1/video/1',
+          views: 150000,
+          isPromotion: true,
+          isAd: false,
+          isSponsored: true,
+          brand: 'TestBrand',
+          confidence: 0.92,
+          signals: ['hashtag_sponsored', 'brand_mention'],
+          tier: 1 as const,
+        },
+        {
+          position: 2,
+          creator: { handle: 'creator2', followers: 25000, avatarUrl: null },
+          caption: 'Love this brand so much!',
+          videoUrl: 'https://tiktok.com/@creator2/video/2',
+          views: 80000,
+          isPromotion: true,
+          isAd: false,
+          isSponsored: false,
+          brand: 'TestBrand',
+          confidence: 0.85,
+          signals: ['brand_mention', 'positive_sentiment'],
+          tier: 2 as const,
+        },
+        {
+          position: 3,
+          creator: { handle: 'creator3', followers: 100000, avatarUrl: null },
+          caption: 'Ad: Partnership with TestBrand',
+          videoUrl: 'https://tiktok.com/@creator3/video/3',
+          views: 300000,
+          isPromotion: true,
+          isAd: true,
+          isSponsored: true,
+          brand: 'TestBrand',
+          confidence: 0.98,
+          signals: ['ad_disclosure', 'partnership_mention'],
+          tier: 1 as const,
+        },
+      ]
+
+      const total = mockVideos.length
+
+      // Stream each video with progress updates
+      for (let i = 0; i < mockVideos.length; i++) {
+        await delay(500) // Simulate processing time
+        await sendVideo(stream, mockVideos[i])
+        await sendProgress(stream, total, i + 1)
+      }
+
+      // Send complete event with summary
+      await delay(200)
+      await sendComplete(stream, {
+        totalVideos: 3,
+        totalInfluencers: 3,
+        totalReach: 530000,
+      })
+    })
   })
   .get('/history', async (c) => {
     try {
