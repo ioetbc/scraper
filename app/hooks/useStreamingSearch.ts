@@ -43,6 +43,11 @@ export type StreamingProgress = {
   completed: number
 }
 
+export type VideoError = {
+  videoId: string
+  message: string
+}
+
 type UseStreamingSearchOptions = {
   onComplete?: (searchId: string) => void
   onError?: (error: Error) => void
@@ -55,9 +60,11 @@ export function useStreamingSearch(options?: UseStreamingSearchOptions) {
   const [searchId, setSearchId] = useState<string | null>(null)
   const [isPending, setIsPending] = useState(false)
   const [error, setError] = useState<Error | null>(null)
+  const [videoErrors, setVideoErrors] = useState<VideoError[]>([])
   const [query, setQuery] = useState<string | null>(null)
 
   const abortControllerRef = useRef<AbortController | null>(null)
+  const searchIdRef = useRef<string | null>(null)
 
   // Clean up on unmount
   useEffect(() => {
@@ -71,7 +78,9 @@ export function useStreamingSearch(options?: UseStreamingSearchOptions) {
     setProgress(null)
     setSummary(null)
     setSearchId(null)
+    searchIdRef.current = null
     setError(null)
+    setVideoErrors([])
     setQuery(null)
   }, [])
 
@@ -181,6 +190,7 @@ export function useStreamingSearch(options?: UseStreamingSearchOptions) {
       switch (event.type) {
         case 'init':
           setSearchId(event.searchId)
+          searchIdRef.current = event.searchId
           break
 
         case 'video':
@@ -194,22 +204,24 @@ export function useStreamingSearch(options?: UseStreamingSearchOptions) {
         case 'complete':
           setSummary(event.summary)
           setIsPending(false)
-          if (searchId) {
-            options?.onComplete?.(searchId)
+          if (searchIdRef.current) {
+            options?.onComplete?.(searchIdRef.current)
           }
           break
 
         case 'error':
           if (!event.videoId) {
-            // Fatal error
+            // Fatal error - stop the stream
             setError(new Error(event.message))
             setIsPending(false)
+          } else {
+            // Non-fatal error - track it but continue
+            setVideoErrors((prev) => [...prev, { videoId: event.videoId!, message: event.message }])
           }
-          // Non-fatal errors (individual video failures) are logged but don't stop the stream
           break
       }
     },
-    [options, searchId]
+    [options]
   )
 
   const cancel = useCallback(() => {
@@ -231,5 +243,6 @@ export function useStreamingSearch(options?: UseStreamingSearchOptions) {
     query,
     isPending,
     error,
+    videoErrors,
   }
 }

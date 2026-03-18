@@ -62,6 +62,7 @@ function HomePage() {
     searchId: streamingSearchId,
     isPending: isBrandPending,
     error: brandError,
+    videoErrors,
   } = useStreamingSearch({
     onComplete: (searchId) => {
       // Invalidate history to refresh the list
@@ -186,10 +187,17 @@ function HomePage() {
           />
         </header>
 
-        {/* Error banner */}
+        {/* Error banner - fatal errors */}
         {error && (
           <div className="px-4 py-2 bg-red-50 border-b border-red-200 text-red-700 text-xs">
             Error: {error instanceof Error ? error.message : "Search failed"}
+          </div>
+        )}
+
+        {/* Warning banner - non-fatal video errors */}
+        {videoErrors.length > 0 && !isBrandPending && (
+          <div className="px-4 py-2 bg-yellow-50 border-b border-yellow-200 text-yellow-700 text-xs">
+            {videoErrors.length} video{videoErrors.length > 1 ? "s" : ""} failed to classify
           </div>
         )}
 
