@@ -219,6 +219,7 @@ function HomePage() {
             <InsightsPanel
               data={results}
               keyword={keyword}
+              searchId={currentSearchId}
               isLoading={isStreamingPending}
               progress={streamingProgress}
             />

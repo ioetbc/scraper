@@ -11,7 +11,7 @@ import {
   sendError,
 } from './services/streaming'
 import { exploreBrand, exploreBrandStreaming, BrandExplorerError } from './services/brand-explorer'
-import { searchLogger, brandExplorerLogger } from './logger'
+import { searchLogger, brandExplorerLogger, insightsLogger } from './logger'
 import {
   classifyVideos,
   findKeywordSearch,
@@ -22,6 +22,7 @@ import {
   saveStreamingKeywordResult,
 } from './services/keyword-search-history'
 import { classifyVideo } from './services/classifier'
+import { generateInsights, InsightsError } from './services/insights'
 import {
   findBrandExplorerSearch,
   saveBrandExplorerSearch,
@@ -623,6 +624,101 @@ const app = new Hono()
         error: error instanceof Error ? error.message : String(error),
       })
       return c.json({ error: 'Internal server error' }, 500)
+    }
+  })
+  .post('/insights', async (c) => {
+    const requestId = crypto.randomUUID()
+    const startTime = performance.now()
+
+    try {
+      const body = await c.req.json()
+      const { searchId } = body
+
+      if (!searchId || typeof searchId !== 'string') {
+        insightsLogger.warn("Invalid insights request", {
+          requestId,
+          error: "searchId_required",
+          statusCode: 400,
+        })
+        return c.json({ error: 'searchId is required' }, 400)
+      }
+
+      // Find the search to get its type
+      const search = await prisma.search.findUnique({
+        where: { id: searchId },
+      })
+
+      if (!search) {
+        insightsLogger.warn("Search not found for insights", {
+          requestId,
+          searchId,
+          statusCode: 404,
+        })
+        return c.json({ error: 'Search not found' }, 404)
+      }
+
+      // Fetch captions based on search type
+      let captions: string[] = []
+
+      if (search.type === 'keyword') {
+        const results = await prisma.searchResult.findMany({
+          where: { searchId },
+          select: { caption: true },
+        })
+        captions = results.map(r => r.caption)
+      } else if (search.type === 'brand_explorer') {
+        const videos = await prisma.video.findMany({
+          where: {
+            brandExplorerResults: {
+              some: { searchId },
+            },
+          },
+          select: { caption: true },
+        })
+        captions = videos.map(v => v.caption)
+      }
+
+      insightsLogger.info("Generating insights", {
+        requestId,
+        searchId,
+        searchType: search.type,
+        captionCount: captions.length,
+      })
+
+      const insights = await generateInsights({
+        searchId,
+        captions,
+      })
+
+      const durationMs = Math.round(performance.now() - startTime)
+
+      insightsLogger.info("Insights generated successfully", {
+        requestId,
+        searchId,
+        durationMs,
+        themesCount: insights.contentPatterns.themes.length,
+        actionsCount: insights.suggestedActions.length,
+      })
+
+      return c.json(insights)
+    } catch (error) {
+      const durationMs = Math.round(performance.now() - startTime)
+
+      if (error instanceof InsightsError) {
+        insightsLogger.warn("Insights generation failed - insufficient data", {
+          requestId,
+          durationMs,
+          error: error.message,
+        })
+        return c.json({ error: error.message }, 400)
+      }
+
+      insightsLogger.error("Insights generation failed", {
+        requestId,
+        durationMs,
+        error: error instanceof Error ? error.message : String(error),
+      })
+      return c.json({ error: 'Failed to generate insights' }, 500)
     }
   })
 

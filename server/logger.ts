@@ -41,3 +41,4 @@ export const searchLogger = getLogger(["habitz", "search"]);
 export const apifyLogger = getLogger(["habitz", "apify"]);
 export const classifierLogger = getLogger(["habitz", "classifier"]);
 export const brandExplorerLogger = getLogger(["habitz", "brand-explorer"]);
+export const insightsLogger = getLogger(["habitz", "insights"]);

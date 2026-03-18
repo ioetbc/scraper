@@ -1,14 +1,18 @@
 import {useMemo} from "react";
-import type {SearchResultItem} from "#/types";
+import type {SearchResultItem, ContentPatternsData} from "#/types";
+import {useInsights} from "#/hooks/useInsights";
 
 export type ViewMode = "results" | "insights";
 
 type InsightsPanelProps = {
   data: SearchResultItem[];
   keyword: string | null;
+  searchId: string | null;
   isLoading?: boolean;
   progress?: {total: number; completed: number} | null;
 };
+
+const MIN_RESULTS_FOR_LLM = 3;
 
 type MarketSnapshotData = {
   activeBrands: number;
@@ -351,9 +355,109 @@ function InfluencerClusters({
   );
 }
 
+function ContentPatterns({
+  data,
+  isLoading,
+  error,
+  onRetry,
+}: {
+  data: ContentPatternsData | null;
+  isLoading: boolean;
+  error: Error | null;
+  onRetry?: () => void;
+}) {
+  if (error) {
+    return (
+      <div className="bg-white border border-gray-200 rounded-lg p-4 md:col-span-2">
+        <h3 className="text-sm font-semibold text-gray-800 mb-3">
+          Content Patterns
+        </h3>
+        <div className="text-center py-4">
+          <p className="text-xs text-red-600 mb-2">{error.message}</p>
+          {onRetry && (
+            <button
+              onClick={onRetry}
+              className="text-xs text-blue-600 hover:text-blue-800"
+            >
+              Retry
+            </button>
+          )}
+        </div>
+      </div>
+    );
+  }
+
+  if (isLoading || !data) {
+    return (
+      <div className="bg-white border border-gray-200 rounded-lg p-4 md:col-span-2">
+        <h3 className="text-sm font-semibold text-gray-800 mb-3">
+          Content Patterns
+        </h3>
+        <div className="grid grid-cols-2 gap-4">
+          <div>
+            <h4 className="text-xs font-medium text-gray-500 mb-2">Themes</h4>
+            <div className="space-y-2">
+              {[1, 2, 3].map((i) => (
+                <div
+                  key={i}
+                  className="h-4 bg-gray-200 rounded animate-pulse"
+                  style={{width: `${60 + i * 10}%`}}
+                />
+              ))}
+            </div>
+          </div>
+          <div>
+            <h4 className="text-xs font-medium text-gray-500 mb-2">Hooks</h4>
+            <div className="space-y-2">
+              {[1, 2, 3].map((i) => (
+                <div
+                  key={i}
+                  className="h-4 bg-gray-200 rounded animate-pulse"
+                  style={{width: `${70 + i * 8}%`}}
+                />
+              ))}
+            </div>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  return (
+    <div className="bg-white border border-gray-200 rounded-lg p-4 md:col-span-2">
+      <h3 className="text-sm font-semibold text-gray-800 mb-3">
+        Content Patterns
+      </h3>
+      <div className="grid grid-cols-2 gap-4">
+        <div>
+          <h4 className="text-xs font-medium text-gray-500 mb-2">Themes</h4>
+          <ul className="space-y-1">
+            {data.themes.map((theme, i) => (
+              <li key={i} className="text-sm text-gray-700">
+                {theme}
+              </li>
+            ))}
+          </ul>
+        </div>
+        <div>
+          <h4 className="text-xs font-medium text-gray-500 mb-2">Hooks</h4>
+          <ul className="space-y-1">
+            {data.hooks.map((hook, i) => (
+              <li key={i} className="text-sm text-gray-700 italic">
+                "{hook}"
+              </li>
+            ))}
+          </ul>
+        </div>
+      </div>
+    </div>
+  );
+}
+
 export function InsightsPanel({
   data,
   keyword,
+  searchId,
   isLoading,
   progress,
 }: InsightsPanelProps) {
@@ -363,6 +467,17 @@ export function InsightsPanel({
     () => computeInfluencerClusters(data),
     [data],
   );
+
+  // Only fetch LLM insights after streaming completes and we have enough data
+  const shouldFetchInsights =
+    !isLoading && data.length >= MIN_RESULTS_FOR_LLM && searchId !== null;
+
+  const {
+    data: insights,
+    isLoading: isInsightsLoading,
+    error: insightsError,
+    refetch: refetchInsights,
+  } = useInsights(searchId, shouldFetchInsights);
 
   // Show empty state if no results and not loading
   if (data.length === 0 && !isLoading) {
@@ -414,9 +529,19 @@ export function InsightsPanel({
           topByReach={influencerClusters.topByReach}
           likelySponsored={influencerClusters.likelySponsored}
         />
+
+        {/* Content Patterns Block (LLM-powered) */}
+        {shouldFetchInsights && (
+          <ContentPatterns
+            data={insights?.contentPatterns ?? null}
+            isLoading={isInsightsLoading}
+            error={insightsError}
+            onRetry={() => refetchInsights()}
+          />
+        )}
       </div>
 
-      {/* Phase 3+ will add Content Patterns, Opportunity Signals, Suggested Actions */}
+      {/* Phase 4+ will add Opportunity Signals, Suggested Actions */}
     </div>
   );
 }
