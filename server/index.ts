@@ -663,16 +663,16 @@ const app = new Hono()
       if (search.type === 'keyword') {
         const results = await prisma.searchResult.findMany({
           where: { searchId },
-          select: { caption: true },
-        })
-        captions = results.map(r => r.caption)
-      } else if (search.type === 'brand_explorer') {
-        const videos = await prisma.video.findMany({
-          where: {
-            brandExplorerResults: {
-              some: { searchId },
+          select: {
+            video: {
+              select: { caption: true },
             },
           },
+        })
+        captions = results.map(r => r.video.caption)
+      } else if (search.type === 'brand_explorer') {
+        const videos = await prisma.video.findMany({
+          where: { searchId },
           select: { caption: true },
         })
         captions = videos.map(v => v.caption)
