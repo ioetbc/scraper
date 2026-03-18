@@ -237,7 +237,7 @@ export async function getKeywordSearchData(
   searchId: string
 ): Promise<{ summary: SearchSummary; results: SearchResultItem[] }> {
   const results = await prisma.searchResult.findMany({
-    where: { searchId },
+    where: { searchId, isPromotion: true },
     orderBy: { position: "asc" },
     include: {
       video: {
@@ -251,7 +251,7 @@ export async function getKeywordSearchData(
     },
   });
 
-  // Calculate summary from results
+  // Calculate summary from promotional results only
   const uniqueCreators = new Set(results.map((r) => r.video.creatorHandle));
   const totalReach = results.reduce(
     (sum, r) => sum + r.video.creatorFollowers,

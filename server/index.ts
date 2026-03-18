@@ -15,7 +15,6 @@ import { searchLogger, brandExplorerLogger } from './logger'
 import {
   classifyVideos,
   findKeywordSearch,
-  saveKeywordSearch,
   refreshKeywordSearch,
   getKeywordSearchData,
   createKeywordSearchRecord,
@@ -57,125 +56,6 @@ const app = new Hono()
     allowMethods: ['GET', 'POST', 'DELETE', 'OPTIONS'],
     allowHeaders: ['Content-Type'],
   }))
-  // Simple SSE test endpoint to verify streaming works
-  .get('/test-sse', async (c) => {
-    return streamSSE(c, async (stream) => {
-      console.log('[SSE Test] Starting test stream')
-
-      // Send test events with delays
-      await stream.writeSSE({
-        event: 'init',
-        data: JSON.stringify({ type: 'init', searchId: 'test-123' }),
-      })
-      console.log('[SSE Test] Sent init event')
-
-      await stream.sleep(500)
-
-      await stream.writeSSE({
-        event: 'video',
-        data: JSON.stringify({ type: 'video', data: { position: 1, caption: 'Test video 1' } }),
-      })
-      console.log('[SSE Test] Sent video event 1')
-
-      await stream.sleep(500)
-
-      await stream.writeSSE({
-        event: 'video',
-        data: JSON.stringify({ type: 'video', data: { position: 2, caption: 'Test video 2' } }),
-      })
-      console.log('[SSE Test] Sent video event 2')
-
-      await stream.sleep(500)
-
-      await stream.writeSSE({
-        event: 'complete',
-        data: JSON.stringify({ type: 'complete', summary: { totalVideos: 2, totalInfluencers: 2, totalReach: 1000 } }),
-      })
-      console.log('[SSE Test] Sent complete event')
-    })
-  })
-  .post('/search', async (c) => {
-    const requestId = crypto.randomUUID()
-    const startTime = performance.now()
-
-    try {
-      const body = await c.req.json()
-      const { keyword } = body
-
-      if (!keyword || typeof keyword !== 'string') {
-        searchLogger.warn("Invalid search request", {
-          requestId,
-          error: "keyword_required",
-          statusCode: 400,
-        })
-        return c.json({ error: 'keyword is required' }, 400)
-      }
-
-      // DB-first: Check if we have cached results
-      const existingSearch = await findKeywordSearch(keyword)
-
-      if (existingSearch) {
-        const data = await getKeywordSearchData(existingSearch.id)
-        const durationMs = Math.round(performance.now() - startTime)
-
-        searchLogger.info("Search completed (cached)", {
-          requestId,
-          keyword,
-          statusCode: 200,
-          durationMs,
-          videoCount: data.results.length,
-          cached: true,
-          searchId: existingSearch.id,
-        })
-
-        return c.json(toSearchResponse({ id: existingSearch.id, query: keyword, ...data }, true))
-      }
-
-      // Not cached: Fetch videos from TikTok via Apify
-      const videos = await searchTikTok(keyword)
-      const { results: classifiedResults, errorCount } = await classifyVideos(videos)
-
-      // Save to database - returns data in response format
-      const savedSearch = await saveKeywordSearch(keyword, classifiedResults)
-
-      const durationMs = Math.round(performance.now() - startTime)
-
-      searchLogger.info("Search completed", {
-        requestId,
-        keyword,
-        statusCode: 200,
-        durationMs,
-        videoCount: videos.length,
-        classificationErrors: errorCount,
-        cached: false,
-        searchId: savedSearch.id,
-      })
-
-      return c.json(toSearchResponse(savedSearch, false))
-    } catch (error) {
-      const durationMs = Math.round(performance.now() - startTime)
-
-      if (error instanceof ApifyError) {
-        searchLogger.error("Search failed - Apify error", {
-          requestId,
-          statusCode: 502,
-          durationMs,
-          errorType: "apify",
-          error: error.message,
-        })
-        return c.json({ error: 'Failed to fetch videos from TikTok', details: error.message }, 502)
-      }
-
-      searchLogger.error("Search failed - Internal error", {
-        requestId,
-        statusCode: 500,
-        durationMs,
-        errorType: "internal",
-        error: error instanceof Error ? error.message : String(error),
-      })
-      return c.json({ error: 'Internal server error' }, 500)
-    }
-  })
   .post('/search/stream', async (c) => {
     const requestId = crypto.randomUUID()
     const startTime = performance.now()
@@ -235,6 +115,7 @@ const app = new Hono()
           let totalReach = 0
           let position = 0
           let totalFetched = 0
+          let promoCount = 0
 
           // Stream videos from Apify and classify as they arrive
           for await (const videoBatch of searchTikTokStreaming(keyword)) {
@@ -257,39 +138,29 @@ const app = new Hono()
                   isSponsored: video.isSponsored,
                 })
 
-                // Save to DB
-                const resultItem = await saveStreamingKeywordResult(
-                  searchId,
-                  video,
-                  classification,
-                  position
-                )
-
-                // Track stats
-                creators.add(video.creator.handle)
-                totalReach += video.creator.followers
+                // Check if promotional before saving
+                const isPromotion = video.isAd || video.isSponsored || classification.isPromotion
+                const originalPosition = position  // Capture before incrementing
                 position++
 
-                // Stream to client
-                await sendVideo(stream, resultItem)
+                // Only save and stream promotional videos
+                if (isPromotion) {
+                  const resultItem = await saveStreamingKeywordResult(
+                    searchId,
+                    video,
+                    classification,
+                    originalPosition  // Original scrape position (0-indexed, function adds 1)
+                  )
+
+                  promoCount++
+                  creators.add(video.creator.handle)
+                  totalReach += video.creator.followers
+                  await sendVideo(stream, resultItem)
+                }
                 await sendProgress(stream, totalFetched, position)
               } catch (error) {
-                // Save failed result to DB
-                const resultItem = await saveStreamingKeywordResult(
-                  searchId,
-                  video,
-                  null,
-                  position,
-                  "Classification failed"
-                )
-
-                // Track stats even for failed videos
-                creators.add(video.creator.handle)
-                totalReach += video.creator.followers
+                // Classification failed - skip this video (don't save)
                 position++
-
-                // Stream to client
-                await sendVideo(stream, resultItem)
                 await sendProgress(stream, totalFetched, position)
                 await sendError(stream, error instanceof Error ? error.message : String(error), video.id)
               }
@@ -299,9 +170,9 @@ const app = new Hono()
           // Finalize the search in DB
           await finalizeKeywordSearch(searchId)
 
-          // Build final summary
+          // Build final summary (only counting promotional videos)
           const summary = {
-            totalVideos: position,
+            totalVideos: promoCount,
             totalInfluencers: creators.size,
             totalReach,
           }

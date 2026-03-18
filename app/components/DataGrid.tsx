@@ -14,42 +14,9 @@ import {
 import type {SearchResultItem} from "#/types";
 import {DebugModal} from "./DebugModal";
 
-function Badge({yes}: {yes: boolean}) {
-  if (yes) {
-    return (
-      <span className="inline-block text-[10px] font-medium px-1.5 py-0.5 bg-gray-800 text-white rounded">
-        Yes
-      </span>
-    );
-  }
-  return (
-    <span className="inline-block text-[10px] px-1.5 py-0.5 text-gray-400">
-      No
-    </span>
-  );
-}
-
-function TierBadge({tier}: {tier: number | null}) {
-  if (tier === 1) {
-    return (
-      <span className="inline-block text-[10px] font-medium px-1.5 py-0.5 bg-gray-800 text-white rounded">
-        Tier 1
-      </span>
-    );
-  }
-  if (tier === null) {
-    return <span className="text-gray-300">—</span>;
-  }
-  return (
-    <span className="inline-block text-[10px] px-1.5 py-0.5 text-gray-400 border border-gray-200 rounded">
-      Tier {tier}
-    </span>
-  );
-}
-
 declare module "@tanstack/react-table" {
   interface ColumnMeta<TData, TValue> {
-    filterVariant?: "text" | "range" | "boolean" | "tier";
+    filterVariant?: "text" | "range";
   }
 }
 
@@ -66,16 +33,6 @@ type DataGridProps = {
 };
 
 const columnHelper = createColumnHelper<SearchResultItem>();
-
-const booleanFilter: FilterFn<SearchResultItem> = (
-  row,
-  columnId,
-  filterValue,
-) => {
-  if (filterValue === undefined || filterValue === "") return true;
-  const value = row.getValue(columnId);
-  return String(value) === filterValue;
-};
 
 const rangeFilter: FilterFn<SearchResultItem> = (
   row,
@@ -205,13 +162,6 @@ export function DataGrid({data, keyword, isLoading, progress}: DataGridProps) {
         enableColumnFilter: false,
         size: 200,
       }),
-      columnHelper.accessor("isPromotion", {
-        header: "Promo",
-        cell: (info) => <Badge yes={!!info.getValue()} />,
-        meta: {filterVariant: "boolean"},
-        filterFn: booleanFilter,
-        size: 64,
-      }),
       columnHelper.accessor("brand", {
         header: "Brand",
         cell: (info) => {
@@ -225,13 +175,6 @@ export function DataGrid({data, keyword, isLoading, progress}: DataGridProps) {
           );
         },
         size: 100,
-      }),
-      columnHelper.accessor("tier", {
-        header: "Tier",
-        cell: (info) => <TierBadge tier={info.getValue()} />,
-        meta: {filterVariant: "tier"},
-        filterFn: booleanFilter,
-        size: 64,
       }),
       columnHelper.display({
         id: "debug",

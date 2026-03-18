@@ -70,126 +70,61 @@ export async function searchTikTok(keyword: string, maxResults = DEFAULT_MAX_RES
 }
 
 /**
- * Streaming version of searchTikTok - yields batches of videos as they become available
- * Uses an async generator to stream results while the Apify actor is still running
+ * Streaming version of searchTikTok - yields batches of videos as they become available.
+ * Polls the dataset while the actor runs, yielding new items as they appear.
  */
 export async function* searchTikTokStreaming(
   keyword: string,
   maxResults = DEFAULT_MAX_RESULTS
 ): AsyncGenerator<TikTokVideo[], void, unknown> {
   const client = getClient();
-  const startTime = performance.now();
 
-  apifyLogger.info("Starting streaming TikTok search", { keyword, maxResults });
+  // Start actor without waiting for completion
+  const run = await client.actor(TIKTOK_SCRAPER_ACTOR).start({
+    searchQueries: [keyword],
+    resultsPerPage: maxResults,
+    searchSection: '',
+    shouldDownloadVideos: false,
+    shouldDownloadCovers: false,
+    shouldDownloadSubtitles: false,
+    shouldDownloadSlideshowImages: false,
+  });
 
-  try {
-    // Start the actor without waiting for completion
-    const run = await client.actor(TIKTOK_SCRAPER_ACTOR).start({
-      searchQueries: [keyword],
-      resultsPerPage: maxResults,
-      searchSection: '',
-      shouldDownloadVideos: false,
-      shouldDownloadCovers: false,
-      shouldDownloadSubtitles: false,
-      shouldDownloadSlideshowImages: false,
-    });
+  const dataset = client.dataset(run.defaultDatasetId);
+  const runClient = client.run(run.id);
+  let offset = 0;
 
-    const runId = run.id;
-    const datasetId = run.defaultDatasetId;
-    let offset = 0;
-    let totalYielded = 0;
+  apifyLogger.info("Apify actor started", { runId: run.id });
 
-    apifyLogger.info("Apify actor started", { runId, datasetId });
+  // Poll until run completes
+  while (true) {
+    const [runInfo, { items }] = await Promise.all([
+      runClient.get(),
+      dataset.listItems({ offset, limit: 100 }),
+    ]);
 
-    // Poll until the run completes
-    while (true) {
-      // Check run status
-      const runInfo = await client.run(runId).get();
-      const status = runInfo?.status;
-
-      // Fetch new items from dataset
-      const { items } = await client.dataset(datasetId).listItems({
-        offset,
-        limit: 100,
-      });
-
-      if (items.length > 0) {
-        const videos = mapApifyResults(items);
-        offset += items.length;
-        totalYielded += videos.length;
-
-        apifyLogger.info("Streaming batch", {
-          runId,
-          batchSize: videos.length,
-          totalYielded,
-          runStatus: status,
-        });
-
-        yield videos;
-      }
-
-      // Check if run is complete
-      if (status === 'SUCCEEDED' || status === 'FAILED' || status === 'ABORTED' || status === 'TIMED-OUT') {
-        // Fetch any remaining items
-        const { items: remainingItems } = await client.dataset(datasetId).listItems({
-          offset,
-        });
-
-        if (remainingItems.length > 0) {
-          const videos = mapApifyResults(remainingItems);
-          totalYielded += videos.length;
-
-          apifyLogger.info("Streaming final batch", {
-            runId,
-            batchSize: videos.length,
-            totalYielded,
-          });
-
-          yield videos;
-        }
-
-        const durationMs = Math.round(performance.now() - startTime);
-
-        if (status === 'SUCCEEDED') {
-          apifyLogger.info("Streaming TikTok search completed", {
-            keyword,
-            runId,
-            totalVideos: totalYielded,
-            durationMs,
-          });
-        } else {
-          apifyLogger.error("Streaming TikTok search ended with status", {
-            keyword,
-            runId,
-            status,
-            totalVideos: totalYielded,
-            durationMs,
-          });
-
-          if (status === 'FAILED' || status === 'ABORTED') {
-            throw new ApifyError(`Apify run ${status.toLowerCase()}: ${runId}`);
-          }
-        }
-
-        break;
-      }
-
-      // Wait before polling again
-      await new Promise(resolve => setTimeout(resolve, STREAM_POLL_INTERVAL));
+    if (items.length > 0) {
+      offset += items.length;
+      yield mapApifyResults(items);
     }
-  } catch (error) {
-    const durationMs = Math.round(performance.now() - startTime);
 
-    apifyLogger.error("Streaming TikTok search failed", {
-      keyword,
-      durationMs,
-      error: error instanceof Error ? error.message : String(error),
-    });
+    const status = runInfo?.status;
+    const isFinished = status === 'SUCCEEDED' || status === 'FAILED' || status === 'ABORTED' || status === 'TIMED-OUT';
 
-    throw new ApifyError(
-      `Failed to stream TikTok search for keyword "${keyword}"`,
-      error
-    );
+    if (isFinished) {
+      // Fetch any remaining items after run completed
+      const { items: remaining } = await dataset.listItems({ offset });
+      if (remaining.length > 0) {
+        yield mapApifyResults(remaining);
+      }
+
+      if (status !== 'SUCCEEDED') {
+        throw new ApifyError(`Apify run ${status?.toLowerCase()}: ${run.id}`);
+      }
+      break;
+    }
+
+    await new Promise(r => setTimeout(r, STREAM_POLL_INTERVAL));
   }
 }
 
