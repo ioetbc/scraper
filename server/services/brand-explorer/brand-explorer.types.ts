@@ -41,3 +41,26 @@ export type NormalizedHandle = {
   username: string; // submagic.co
   hashtag: string;  // submagic (no dots)
 }
+
+// Callback types for streaming brand exploration
+export type ClassifiedVideo = {
+  video: {
+    id: string
+    creator: { handle: string; followers: number; avatarUrl: string | null }
+    caption: string
+    videoUrl: string
+    stats: { views: number }
+  }
+  classification: {
+    isPromotion: boolean
+    brand: string | null
+    confidence: number
+    signals: string[]
+    tier: 1 | 2
+  }
+}
+
+export type StreamingCallbacks = {
+  onVideo: (video: ClassifiedVideo, progress: { total: number; completed: number }) => Promise<void>
+  onError: (videoId: string, message: string) => Promise<void>
+}

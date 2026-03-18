@@ -8,9 +8,11 @@ import {
   type BrandInfluencer,
   type BrandVideo,
   type NormalizedHandle,
+  type ClassifiedVideo,
+  type StreamingCallbacks,
 } from './brand-explorer.types';
 
-function normalizeHandle(input: string): NormalizedHandle {
+export function normalizeHandle(input: string): NormalizedHandle {
   const cleaned = input.replace(/^@/, '').replace(/\.+$/, '');
   return {
     handle: `@${cleaned}`,
@@ -210,4 +212,159 @@ export async function exploreBrand(input: BrandExplorerInput): Promise<BrandExpl
     influencers,
     videos,
   };
+}
+
+/**
+ * Streaming version of brand exploration.
+ * Processes videos sequentially and calls callbacks as each video is classified.
+ * Returns the final summary after all videos are processed.
+ */
+export async function exploreBrandStreaming(
+  input: BrandExplorerInput,
+  callbacks: StreamingCallbacks
+): Promise<BrandExplorerResult['summary']> {
+  const startTime = performance.now();
+  const normalized = normalizeHandle(input.handle);
+
+  brandExplorerLogger.info("Starting streaming brand exploration", {
+    inputHandle: input.handle,
+    normalizedHandle: normalized.handle,
+    hashtag: normalized.hashtag,
+  });
+
+  // Run parallel searches: mentions, hashtags, and keyword (same as non-streaming)
+  const [mentionResults, hashtagResults, keywordResults] = await Promise.allSettled([
+    searchByMention(normalized.handle),
+    searchByHashtag(normalized.hashtag),
+    searchTikTok(normalized.hashtag),
+  ]);
+
+  // Collect results, handling partial failures
+  const allVideos: TikTokVideo[] = [];
+  const errors: string[] = [];
+
+  if (mentionResults.status === 'fulfilled') {
+    allVideos.push(...mentionResults.value);
+  } else {
+    errors.push(`Mention search failed: ${mentionResults.reason}`);
+    brandExplorerLogger.warn("Mention search failed", {
+      handle: normalized.handle,
+      error: mentionResults.reason instanceof Error ? mentionResults.reason.message : String(mentionResults.reason),
+    });
+  }
+
+  if (hashtagResults.status === 'fulfilled') {
+    allVideos.push(...hashtagResults.value);
+  } else {
+    errors.push(`Hashtag search failed: ${hashtagResults.reason}`);
+    brandExplorerLogger.warn("Hashtag search failed", {
+      hashtag: normalized.hashtag,
+      error: hashtagResults.reason instanceof Error ? hashtagResults.reason.message : String(hashtagResults.reason),
+    });
+  }
+
+  if (keywordResults.status === 'fulfilled') {
+    allVideos.push(...keywordResults.value);
+  } else {
+    errors.push(`Keyword search failed: ${keywordResults.reason}`);
+    brandExplorerLogger.warn("Keyword search failed", {
+      keyword: normalized.hashtag,
+      error: keywordResults.reason instanceof Error ? keywordResults.reason.message : String(keywordResults.reason),
+    });
+  }
+
+  // If all searches failed, throw
+  if (allVideos.length === 0 && errors.length === 3) {
+    throw new BrandExplorerError(`All searches failed for brand "${input.handle}": ${errors.join('; ')}`);
+  }
+
+  // Dedupe by video ID
+  const uniqueVideos = dedupeVideos(allVideos);
+
+  // Filter out the brand's own content
+  const brandUsername = normalized.username.toLowerCase();
+  const influencerVideos = uniqueVideos.filter(v =>
+    v.creator.handle.toLowerCase() !== brandUsername
+  );
+
+  brandExplorerLogger.info("Deduplication complete (streaming)", {
+    totalRaw: allVideos.length,
+    afterDedupe: uniqueVideos.length,
+    afterFilteringBrandOwn: influencerVideos.length,
+  });
+
+  // Track matched videos for summary calculation
+  const matchedVideos: ClassifiedVideo[] = [];
+  const total = influencerVideos.length;
+
+  // Classify videos SEQUENTIALLY (not in parallel) for streaming
+  for (let i = 0; i < influencerVideos.length; i++) {
+    const video = influencerVideos[i];
+
+    try {
+      const classification = await classifyVideo({
+        caption: video.caption,
+        mentions: video.mentions,
+        hashtags: video.hashtags,
+        isAd: video.isAd,
+        isSponsored: video.isSponsored,
+      });
+
+      const isMatch = isMatchingBrand(classification.brand, normalized);
+
+      if (isMatch) {
+        const classifiedVideo: ClassifiedVideo = {
+          video: {
+            id: video.id,
+            creator: video.creator,
+            caption: video.caption,
+            videoUrl: video.videoUrl,
+            stats: video.stats,
+          },
+          classification: {
+            isPromotion: classification.isPromotion,
+            brand: classification.brand,
+            confidence: classification.confidence,
+            signals: classification.signals,
+            tier: classification.tier,
+          },
+        };
+
+        matchedVideos.push(classifiedVideo);
+
+        // Call the callback to stream this video
+        await callbacks.onVideo(classifiedVideo, { total, completed: i + 1 });
+      }
+    } catch (error) {
+      brandExplorerLogger.warn("Classification failed for video (streaming)", {
+        videoId: video.id,
+        error: error instanceof Error ? error.message : String(error),
+      });
+
+      // Call error callback but continue processing
+      await callbacks.onError(video.id, error instanceof Error ? error.message : String(error));
+    }
+  }
+
+  // Calculate summary
+  const influencerSet = new Set(matchedVideos.map(v => v.video.creator.handle));
+  const totalReach = matchedVideos.reduce((sum, v) => sum + v.video.stats.views, 0);
+
+  const summary = {
+    totalVideos: matchedVideos.length,
+    totalInfluencers: influencerSet.size,
+    totalReach,
+  };
+
+  const durationMs = Math.round(performance.now() - startTime);
+
+  brandExplorerLogger.info("Streaming brand exploration complete", {
+    brand: normalized.username,
+    totalVideos: summary.totalVideos,
+    totalInfluencers: summary.totalInfluencers,
+    totalReach: summary.totalReach,
+    durationMs,
+  });
+
+  return summary;
 }

@@ -1,4 +1,4 @@
-export { exploreBrand } from './brand-explorer';
+export { exploreBrand, exploreBrandStreaming, normalizeHandle } from './brand-explorer';
 export {
   BrandExplorerError,
   type BrandExplorerInput,
@@ -6,4 +6,6 @@ export {
   type BrandInfluencer,
   type BrandVideo,
   type NormalizedHandle,
+  type ClassifiedVideo,
+  type StreamingCallbacks,
 } from './brand-explorer.types';

@@ -1,5 +1,5 @@
 import { prisma, PLACEHOLDER_USER_ID } from "../../lib/prisma";
-import type { BrandExplorerResult, BrandVideo, BrandInfluencer } from "../brand-explorer";
+import type { BrandExplorerResult, BrandVideo, BrandInfluencer, ClassifiedVideo } from "../brand-explorer";
 import type { SavedBrandExplorerSearch, BrandExplorerData } from "./brand-explorer-history.types";
 import type { SearchResultItem, SearchSummary, SearchData } from "../../lib/response";
 
@@ -295,4 +295,101 @@ export async function getBrandExplorerData(
   }));
 
   return { summary, results };
+}
+
+// ============================================================================
+// Streaming-specific functions for incremental DB writes
+// ============================================================================
+
+/**
+ * Creates a Search record at stream start to get searchId immediately.
+ * Returns the searchId for use in subsequent operations.
+ */
+export async function createBrandExplorerSearchRecord(
+  handle: string
+): Promise<string> {
+  const normalizedQuery = handle.toLowerCase();
+
+  const search = await prisma.search.create({
+    data: {
+      user: {
+        connectOrCreate: {
+          where: { id: PLACEHOLDER_USER_ID },
+          create: { id: PLACEHOLDER_USER_ID },
+        },
+      },
+      type: "brand_explorer",
+      query: normalizedQuery,
+    },
+  });
+
+  return search.id;
+}
+
+/**
+ * Saves a single video during streaming.
+ * Returns the created video's database ID.
+ */
+export async function saveStreamingVideo(
+  searchId: string,
+  video: ClassifiedVideo,
+  _position: number
+): Promise<string> {
+  const created = await prisma.video.create({
+    data: {
+      searchId,
+      tiktokId: video.video.id,
+      caption: video.video.caption,
+      isAd: false,
+      isSponsored: false,
+      creatorHandle: video.video.creator.handle,
+      creatorFollowers: video.video.creator.followers,
+      creatorAvatarUrl: video.video.creator.avatarUrl,
+      videoUrl: video.video.videoUrl,
+      stats: {
+        create: {
+          views: video.video.stats.views,
+          likes: 0,
+          comments: 0,
+          shares: 0,
+        },
+      },
+    },
+  });
+
+  return created.id;
+}
+
+/**
+ * Finalizes a streaming search by creating the summary record.
+ * Called after all videos have been processed.
+ */
+export async function finalizeBrandExplorerSearch(
+  searchId: string,
+  summary: SearchSummary
+): Promise<void> {
+  // Get all video IDs for this search
+  const videos = await prisma.video.findMany({
+    where: { searchId },
+    select: { id: true },
+  });
+
+  // Create the summary with video connections
+  await prisma.brandExplorerSummary.create({
+    data: {
+      searchId,
+      totalVideos: summary.totalVideos,
+      totalInfluencers: summary.totalInfluencers,
+      totalReach: summary.totalReach,
+      videos: {
+        connect: videos.map((v) => ({ id: v.id })),
+      },
+    },
+  });
+
+  // Update search timestamp
+  await prisma.search.update({
+    where: { id: searchId },
+    data: { updatedAt: new Date() },
+  });
 }

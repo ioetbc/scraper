@@ -7,8 +7,9 @@ import {
   sendVideo,
   sendProgress,
   sendComplete,
+  sendError,
 } from './services/streaming'
-import { exploreBrand, BrandExplorerError } from './services/brand-explorer'
+import { exploreBrand, exploreBrandStreaming, BrandExplorerError } from './services/brand-explorer'
 import { searchLogger, brandExplorerLogger } from './logger'
 import {
   classifyVideos,
@@ -22,6 +23,9 @@ import {
   saveBrandExplorerSearch,
   refreshBrandExplorerSearch,
   getBrandExplorerData,
+  createBrandExplorerSearchRecord,
+  saveStreamingVideo,
+  finalizeBrandExplorerSearch,
 } from './services/brand-explorer-history'
 import { prisma, PLACEHOLDER_USER_ID } from './lib/prisma'
 import {
@@ -212,79 +216,131 @@ const app = new Hono()
     }
   })
   .post('/brand-explorer/stream', async (c) => {
-    // Phase 1: Minimal SSE endpoint with fake data to validate streaming infrastructure
-    return streamSSE(c, async (stream) => {
-      const mockSearchId = crypto.randomUUID()
+    const requestId = crypto.randomUUID()
+    const startTime = performance.now()
 
-      // Send init event with searchId
-      await sendInit(stream, mockSearchId)
+    try {
+      const body = await c.req.json()
+      const { handle } = body
 
-      // Simulate delay between events
-      const delay = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms))
-
-      // Mock video data
-      const mockVideos = [
-        {
-          position: 1,
-          creator: { handle: 'creator1', followers: 50000, avatarUrl: null },
-          caption: 'Check out this amazing product! #sponsored',
-          videoUrl: 'https://tiktok.com/@creator1/video/1',
-          views: 150000,
-          isPromotion: true,
-          isAd: false,
-          isSponsored: true,
-          brand: 'TestBrand',
-          confidence: 0.92,
-          signals: ['hashtag_sponsored', 'brand_mention'],
-          tier: 1 as const,
-        },
-        {
-          position: 2,
-          creator: { handle: 'creator2', followers: 25000, avatarUrl: null },
-          caption: 'Love this brand so much!',
-          videoUrl: 'https://tiktok.com/@creator2/video/2',
-          views: 80000,
-          isPromotion: true,
-          isAd: false,
-          isSponsored: false,
-          brand: 'TestBrand',
-          confidence: 0.85,
-          signals: ['brand_mention', 'positive_sentiment'],
-          tier: 2 as const,
-        },
-        {
-          position: 3,
-          creator: { handle: 'creator3', followers: 100000, avatarUrl: null },
-          caption: 'Ad: Partnership with TestBrand',
-          videoUrl: 'https://tiktok.com/@creator3/video/3',
-          views: 300000,
-          isPromotion: true,
-          isAd: true,
-          isSponsored: true,
-          brand: 'TestBrand',
-          confidence: 0.98,
-          signals: ['ad_disclosure', 'partnership_mention'],
-          tier: 1 as const,
-        },
-      ]
-
-      const total = mockVideos.length
-
-      // Stream each video with progress updates
-      for (let i = 0; i < mockVideos.length; i++) {
-        await delay(500) // Simulate processing time
-        await sendVideo(stream, mockVideos[i])
-        await sendProgress(stream, total, i + 1)
+      if (!handle || typeof handle !== 'string') {
+        brandExplorerLogger.warn("Invalid streaming brand explorer request", {
+          requestId,
+          error: "handle_required",
+          statusCode: 400,
+        })
+        return c.json({ error: 'handle is required (e.g., "@submagic.co" or "submagic.co")' }, 400)
       }
 
-      // Send complete event with summary
-      await delay(200)
-      await sendComplete(stream, {
-        totalVideos: 3,
-        totalInfluencers: 3,
-        totalReach: 530000,
+      // Check cache first - if cached, return JSON immediately (no streaming)
+      const existingSearch = await findBrandExplorerSearch(handle)
+      if (existingSearch) {
+        const cachedData = await getBrandExplorerData(existingSearch.id)
+        const durationMs = Math.round(performance.now() - startTime)
+
+        if (cachedData) {
+          brandExplorerLogger.info("Streaming brand explorer request served from cache", {
+            requestId,
+            handle,
+            statusCode: 200,
+            durationMs,
+            cached: true,
+            searchId: existingSearch.id,
+          })
+
+          return c.json({
+            query: handle,
+            searchId: existingSearch.id,
+            cached: true,
+            summary: cachedData.summary,
+            results: cachedData.results,
+          })
+        }
+      }
+
+      // Not cached - stream results
+      return streamSSE(c, async (stream) => {
+        // Create search record upfront to get searchId
+        const searchId = await createBrandExplorerSearchRecord(handle)
+
+        // Send init event with searchId immediately
+        await sendInit(stream, searchId)
+
+        let position = 0
+
+        try {
+          // Run streaming brand exploration
+          const summary = await exploreBrandStreaming(
+            { handle },
+            {
+              onVideo: async (video, progress) => {
+                position++
+
+                // Save to DB immediately
+                await saveStreamingVideo(searchId, video, position)
+
+                // Stream to client
+                await sendVideo(stream, {
+                  position,
+                  creator: video.video.creator,
+                  caption: video.video.caption,
+                  videoUrl: video.video.videoUrl,
+                  views: video.video.stats.views,
+                  isPromotion: video.classification.isPromotion,
+                  isAd: false,
+                  isSponsored: false,
+                  brand: video.classification.brand,
+                  confidence: video.classification.confidence,
+                  signals: video.classification.signals,
+                  tier: video.classification.tier,
+                })
+
+                await sendProgress(stream, progress.total, progress.completed)
+              },
+              onError: async (videoId, message) => {
+                await sendError(stream, message, videoId)
+              },
+            }
+          )
+
+          // Finalize the search in DB (create summary record)
+          await finalizeBrandExplorerSearch(searchId, summary)
+
+          // Send complete event
+          await sendComplete(stream, summary)
+
+          const durationMs = Math.round(performance.now() - startTime)
+          brandExplorerLogger.info("Streaming brand explorer completed", {
+            requestId,
+            handle,
+            searchId,
+            durationMs,
+            totalVideos: summary.totalVideos,
+            totalInfluencers: summary.totalInfluencers,
+            totalReach: summary.totalReach,
+          })
+        } catch (error) {
+          const durationMs = Math.round(performance.now() - startTime)
+          brandExplorerLogger.error("Streaming brand explorer failed", {
+            requestId,
+            handle,
+            searchId,
+            durationMs,
+            error: error instanceof Error ? error.message : String(error),
+          })
+
+          await sendError(stream, error instanceof Error ? error.message : 'Unknown error')
+        }
       })
-    })
+    } catch (error) {
+      const durationMs = Math.round(performance.now() - startTime)
+      brandExplorerLogger.error("Streaming brand explorer failed - setup error", {
+        requestId,
+        durationMs,
+        error: error instanceof Error ? error.message : String(error),
+      })
+      return c.json({ error: 'Internal server error' }, 500)
+    }
   })
   .get('/history', async (c) => {
     try {
