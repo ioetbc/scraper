@@ -89,12 +89,7 @@ const rangeFilter: FilterFn<SearchResultItem> = (
   return true;
 };
 
-export function DataGrid({
-  data,
-  keyword,
-  isLoading,
-  progress,
-}: DataGridProps) {
+export function DataGrid({data, keyword, isLoading, progress}: DataGridProps) {
   const [sorting, setSorting] = useState<SortingState>([]);
   const [columnFilters, setColumnFilters] = useState<ColumnFiltersState>([]);
   const [globalFilter, setGlobalFilter] = useState("");
@@ -125,7 +120,7 @@ export function DataGrid({
         size: 36,
       }),
       columnHelper.accessor("position", {
-        header: "#",
+        header: "Position",
         cell: (info) => (
           <span className="font-mono-ui text-xs text-gray-400">
             {info.getValue()}
@@ -136,17 +131,29 @@ export function DataGrid({
       }),
       columnHelper.accessor("creator.handle", {
         header: "Creator",
-        cell: (info) => (
-          <a
-            href={`https://tiktok.com/@${info.getValue()}`}
-            target="_blank"
-            rel="noopener noreferrer"
-            className="text-sm text-gray-700 hover:text-gray-900 hover:underline truncate"
-          >
-            @{info.getValue()}
-          </a>
-        ),
-        size: 150,
+        cell: (info) => {
+          const creator = info.row.original.creator;
+          return (
+            <a
+              href={`https://tiktok.com/@${info.getValue()}`}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-2 text-sm text-gray-700 hover:text-gray-900 hover:underline"
+            >
+              {creator.avatarUrl ? (
+                <img
+                  src={creator.avatarUrl}
+                  alt=""
+                  className="w-6 h-6 rounded-md object-cover flex-shrink-0"
+                />
+              ) : (
+                <div className="w-6 h-6 rounded-md bg-gray-200 flex-shrink-0" />
+              )}
+              <span className="truncate">@{info.getValue()}</span>
+            </a>
+          );
+        },
+        size: 180,
       }),
       columnHelper.accessor("creator.followers", {
         header: "Followers",
@@ -173,11 +180,30 @@ export function DataGrid({
       columnHelper.accessor("caption", {
         header: "Caption",
         cell: (info) => (
-          <span className="text-sm text-gray-600 truncate block max-w-full" title={info.getValue()}>
+          <span
+            className="text-sm text-gray-600 truncate block max-w-full"
+            title={info.getValue()}
+          >
             {info.getValue()}
           </span>
         ),
         size: 320,
+      }),
+      columnHelper.accessor("videoUrl", {
+        header: "Video",
+        cell: (info) => (
+          <a
+            href={info.getValue()}
+            target="_blank"
+            rel="noopener noreferrer"
+            className="text-sm line-clamp-1 text-blue-600 hover:text-blue-800 hover:underline truncate block"
+            title={info.getValue()}
+          >
+            {info.getValue()}
+          </a>
+        ),
+        enableColumnFilter: false,
+        size: 200,
       }),
       columnHelper.accessor("isPromotion", {
         header: "Promo",
@@ -191,7 +217,9 @@ export function DataGrid({
         cell: (info) => {
           const brand = info.getValue();
           return brand ? (
-            <span className="text-sm font-medium text-gray-800 truncate block">{brand}</span>
+            <span className="text-sm font-medium text-gray-800 truncate block">
+              {brand}
+            </span>
           ) : (
             <span className="text-gray-300">—</span>
           );
@@ -286,8 +314,11 @@ export function DataGrid({
           </span>
         )}
         <span>
-          Showing <span className="font-medium text-gray-700">{table.getFilteredRowModel().rows.length}</span> of{" "}
-          <span className="font-medium text-gray-700">{data.length}</span>
+          Showing{" "}
+          <span className="font-medium text-gray-700">
+            {table.getFilteredRowModel().rows.length}
+          </span>{" "}
+          of <span className="font-medium text-gray-700">{data.length}</span>
         </span>
         {isLoading && progress && (
           <span className="text-blue-600">
@@ -298,7 +329,10 @@ export function DataGrid({
 
       {/* Table */}
       <div className="flex-1 overflow-auto">
-        <table className="w-full border-collapse text-sm" style={{tableLayout: "fixed"}}>
+        <table
+          className="w-full border-collapse text-sm"
+          style={{tableLayout: "fixed"}}
+        >
           <thead>
             {table.getHeaderGroups().map((headerGroup) => (
               <tr key={headerGroup.id}>
@@ -307,11 +341,16 @@ export function DataGrid({
                     key={header.id}
                     style={{width: header.getSize()}}
                     className={`sticky top-0 z-10 bg-gray-100 text-gray-600 text-left px-3 py-2 text-xs font-medium border-b border-gray-200 whitespace-nowrap ${
-                      header.column.getCanSort() ? "cursor-pointer select-none hover:bg-gray-200" : ""
+                      header.column.getCanSort()
+                        ? "cursor-pointer select-none hover:bg-gray-200"
+                        : ""
                     }`}
                     onClick={header.column.getToggleSortingHandler()}
                   >
-                    {flexRender(header.column.columnDef.header, header.getContext())}
+                    {flexRender(
+                      header.column.columnDef.header,
+                      header.getContext(),
+                    )}
                     {{
                       asc: " ↑",
                       desc: " ↓",
@@ -326,9 +365,7 @@ export function DataGrid({
               <tr
                 key={row.id}
                 className={`${
-                  row.getIsSelected()
-                    ? "bg-gray-100"
-                    : "hover:bg-gray-50"
+                  row.getIsSelected() ? "bg-gray-100" : "hover:bg-gray-50"
                 }`}
               >
                 {row.getVisibleCells().map((cell) => (

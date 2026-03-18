@@ -1,6 +1,7 @@
 export type Creator = {
   handle: string
   followers: number
+  avatarUrl: string | null
 }
 
 // Unified result item for both keyword search and brand explorer
