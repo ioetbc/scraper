@@ -50,27 +50,3 @@ export type HistorySearchItem = {
 export type HistoryResponse = {
   searches: HistorySearchItem[]
 }
-
-// Insights types
-export type ContentPatternsData = {
-  themes: string[]
-  hooks: string[]
-}
-
-export type OpportunitySignalsData = {
-  marketGaps: string[]
-  saturationLevel: 'low' | 'medium' | 'high'
-  emergingOpportunities: string[]
-}
-
-export type SuggestedAction = {
-  action: string
-  rationale: string
-  priority: 'high' | 'medium' | 'low'
-}
-
-export type InsightsResult = {
-  contentPatterns: ContentPatternsData
-  opportunitySignals: OpportunitySignalsData
-  suggestedActions: SuggestedAction[]
-}

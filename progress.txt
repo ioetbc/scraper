@@ -204,3 +204,212 @@ The streaming results feature is fully implemented:
 - Phase 4: Error handling ✓
 - Phase 5: Keyword search streaming ✓
 - Phase 6: Cache-aware routing ✓
+
+---
+---
+
+# Insights Tab Feature
+
+> Source: plans/insights-tab.md
+
+---
+
+## Phase 1: Toggle + Market Snapshot - COMPLETED
+
+Commit: 7ec3f34
+
+### What was built:
+
+**InsightsPanel Component (`app/components/InsightsPanel.tsx`):**
+- `ViewMode` type exported for toggle state (`'results' | 'insights'`)
+- `computeMarketSnapshot()` function computes metrics from results array
+- `MarketSnapshot` component displays 4 key metrics with loading states
+- `InsightsPanel` main component with info bar and empty state handling
+
+**Market Snapshot Metrics Computed:**
+- Active brands detected (unique non-null brand values)
+- Total creators (unique handles)
+- Sponsored posts (count + percentage where `isSponsored` or `isAd`)
+- Estimated reach (5-15% of unique creator followers sum)
+
+**HomePage Integration (`app/routes/index.tsx`):**
+- Added `viewMode` state with Results/Insights toggle
+- Toggle button group in header bar matching visual pattern
+- Conditional rendering: Results → DataGrid, Insights → InsightsPanel
+- Both views receive same `data`, `keyword`, `isLoading`, `progress` props
+
+### Acceptance criteria verified:
+- [x] Toggle appears in header next to search input
+- [x] Clicking "Insights" shows InsightsPanel, "Results" shows DataGrid
+- [x] Market Snapshot displays all 4 metrics
+- [x] Stats update in real-time as results stream (via useMemo dependency)
+- [x] Works with both new searches and cached history items
+
+---
+
+## Phase 2: Brand & Influencer Blocks - COMPLETED
+
+Commit: ccf7f4d
+
+### What was built:
+
+**Brand Breakdown Component:**
+- `computeBrandBreakdown()` function aggregates brands with post counts
+- Displays brands sorted by count descending with percentages
+- Shows up to 8 brands in the list
+- Empty state: "No brands detected yet"
+
+**Influencer Clusters Component:**
+- `computeInfluencerClusters()` function groups creators into two categories
+- **Top by Reach**: Top 5 creators sorted by follower count
+- **Likely Sponsored**: Top 5 creators with brand associations
+- Each entry shows handle and formatted follower count
+- Sponsored section shows associated brand name
+
+**Types Added:**
+- `BrandBreakdownItem`: brand, count, percentage
+- `InfluencerItem`: handle, followers, brand, avatarUrl
+
+**Layout Update:**
+- Changed to 2-column responsive grid (`grid-cols-1 md:grid-cols-2`)
+- Market Snapshot, Brand Breakdown, and Influencer Clusters in grid
+
+### Acceptance criteria verified:
+- [x] Brand Breakdown shows top brands with counts and percentages
+- [x] Influencer Clusters shows two groups: top by reach, likely sponsored
+- [x] Both blocks update progressively as results stream
+- [x] Handles edge case: no brands detected (shows appropriate message)
+- [x] Handles edge case: no sponsored content detected
+
+---
+
+## Phase 3: LLM Backend + Content Patterns - COMPLETED
+
+Commit: a297bdf
+
+### What was built:
+
+**Backend Insights Service (`server/services/insights/`):**
+- `insights.types.ts` - Types: InsightsInput, InsightsResult, ContentPatternsData, OpportunitySignalsData, SuggestedAction, InsightsError
+- `insights.schema.ts` - Zod schema for structured LLM output with `.describe()` hints
+- `insights.prompt.ts` - System prompt for content strategist role, dynamic user prompt builder
+- `insights.ts` - `generateInsights()` function using Vercel AI SDK with gpt-4o-mini
+- `index.ts` - Re-exports public APIs
+
+**Backend Endpoint (`server/index.ts`):**
+- `POST /api/insights` endpoint accepts `{ searchId }`
+- Fetches captions from SearchResult or Video tables based on search type
+- Calls LLM and returns structured InsightsResult
+- Returns 400 if < 3 captions available
+
+**Frontend Hook (`app/hooks/useInsights.ts`):**
+- TanStack Query hook with infinite staleTime (cached forever per searchId)
+- Only fetches when streaming complete and 3+ results exist
+- Retry disabled for graceful error handling
+
+**Frontend Component Updates:**
+- `ContentPatterns` component displays themes and hooks from LLM
+- Loading skeleton while LLM processes
+- Error state with retry button
+- Added `searchId` prop to InsightsPanel
+- Conditional rendering: only shows after streaming completes
+
+**Types Added (`app/types/index.ts`):**
+- ContentPatternsData, OpportunitySignalsData, SuggestedAction, InsightsResult
+
+### Acceptance criteria verified:
+- [x] `/api/insights` endpoint returns structured LLM response
+- [x] Content Patterns block shows themes extracted from captions
+- [x] Content Patterns block shows top hooks/opening patterns
+- [x] LLM insights only requested after streaming completes
+- [x] Loading state shown while LLM processes
+- [x] Insights cached per searchId (no re-fetch on tab toggle)
+
+---
+
+## Phase 4: Opportunity Signals + Suggested Actions - COMPLETED
+
+Commit: 0f5a9f6
+
+### What was built:
+
+**OpportunitySignals Component:**
+- Saturation level indicator with color-coded badges (low=green, medium=yellow, high=red)
+- Market gaps list showing underserved areas
+- Emerging opportunities list
+- Loading skeleton while LLM processes
+
+**SuggestedActions Component:**
+- Prioritized recommendations with color-coded priority badges
+- Each action shows rationale explaining why it's recommended
+- Spans full width for better readability
+- Loading skeleton while LLM processes
+
+**Layout Updates:**
+- Market Snapshot now spans full width (`md:col-span-2`)
+- Market Snapshot uses 4-column grid on desktop (`md:grid-cols-4`)
+- Suggested Actions spans full width (`md:col-span-2`)
+- All 6 blocks now displayed in InsightsPanel:
+  1. Market Snapshot (full width)
+  2. Brand Breakdown
+  3. Influencer Clusters
+  4. Content Patterns (full width)
+  5. Opportunity Signals
+  6. Suggested Actions (full width)
+
+### Acceptance criteria verified:
+- [x] Opportunity Signals displays market gaps and saturation level
+- [x] Suggested Actions shows prioritized recommendations with rationale
+- [x] Full InsightsPanel now shows all 6 blocks
+- [x] Layout: 2-column grid with Market Snapshot and Actions spanning full width
+
+---
+
+## Phase 5: Polish & Edge Cases - COMPLETED
+
+Commit: 6324a83
+
+### What was built:
+
+**Loading States:**
+- Added skeleton loaders to BrandBreakdown component
+- Added skeleton loaders to InfluencerClusters component
+- Pass `isLoading` prop to client-side computed blocks
+- All blocks now show skeleton animations while loading
+
+**Layout Stability (min-height):**
+- MarketSnapshot: 100px
+- BrandBreakdown: 180px
+- InfluencerClusters: 240px
+- ContentPatterns: 140px
+- OpportunitySignals: 200px
+- SuggestedActions: 160px
+
+**Insufficient Data Handling:**
+- Show helpful message when < 3 results available
+- Message explains: "Need at least 3 results for AI-powered insights"
+- Shows current count: "Currently analyzing X videos"
+- LLM blocks hidden until sufficient data available
+
+**Error Handling:**
+- ContentPatterns has error state with retry button
+- All LLM blocks share error state from useInsights hook
+- Graceful degradation: client-side blocks always visible
+
+### Acceptance criteria verified:
+- [x] Each block shows skeleton loader while computing/fetching
+- [x] LLM failure shows error state with retry button
+- [x] Insufficient data (< 3 results) shows helpful message instead of LLM blocks
+- [x] Switching between history items loads correct insights (searchId-based caching)
+- [x] No layout shift as blocks load progressively (min-height)
+
+---
+
+## All Insights Tab Phases Complete!
+
+The Insights Tab feature is fully implemented:
+- Phase 1: Toggle + Market Snapshot ✓
+- Phase 2: Brand & Influencer Blocks ✓
+- Phase 3: LLM Backend + Content Patterns ✓
+- Phase 4: Opportunity Signals + Suggested Actions ✓
+- Phase 5: Polish & Edge Cases ✓

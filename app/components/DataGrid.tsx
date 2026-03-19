@@ -134,6 +134,28 @@ export function DataGrid({data, keyword, isLoading, progress}: DataGridProps) {
         filterFn: rangeFilter,
         size: 80,
       }),
+      columnHelper.accessor("views", {
+        header: "Views",
+        cell: (info) => {
+          const value = info.getValue();
+          let display: string;
+          if (value >= 1_000_000) {
+            display = `${(value / 1_000_000).toFixed(1)}M`;
+          } else if (value >= 1_000) {
+            display = `${(value / 1_000).toFixed(0)}K`;
+          } else {
+            display = String(value);
+          }
+          return (
+            <span className="font-mono-ui text-xs text-gray-600 text-right block">
+              {display}
+            </span>
+          );
+        },
+        meta: {filterVariant: "range"},
+        filterFn: rangeFilter,
+        size: 80,
+      }),
       columnHelper.accessor("caption", {
         header: "Caption",
         cell: (info) => (

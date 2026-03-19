@@ -11,7 +11,7 @@ import {
   sendError,
 } from './services/streaming'
 import { exploreBrand, exploreBrandStreaming, BrandExplorerError } from './services/brand-explorer'
-import { searchLogger, brandExplorerLogger, insightsLogger } from './logger'
+import { searchLogger, brandExplorerLogger } from './logger'
 import {
   classifyVideos,
   findKeywordSearch,
@@ -22,7 +22,6 @@ import {
   saveStreamingKeywordResult,
 } from './services/keyword-search-history'
 import { classifyVideo } from './services/classifier'
-import { generateInsights, InsightsError } from './services/insights'
 import {
   findBrandExplorerSearch,
   saveBrandExplorerSearch,
@@ -209,92 +208,6 @@ const app = new Hono()
       searchLogger.error("Streaming search failed - setup error", {
         requestId,
         durationMs,
-        error: error instanceof Error ? error.message : String(error),
-      })
-      return c.json({ error: 'Internal server error' }, 500)
-    }
-  })
-  .post('/brand-explorer', async (c) => {
-    const requestId = crypto.randomUUID()
-    const startTime = performance.now()
-
-    try {
-      const body = await c.req.json()
-      const { handle } = body
-
-      if (!handle || typeof handle !== 'string') {
-        brandExplorerLogger.warn("Invalid brand explorer request", {
-          requestId,
-          error: "handle_required",
-          statusCode: 400,
-        })
-        return c.json({ error: 'handle is required (e.g., "@submagic.co" or "submagic.co")' }, 400)
-      }
-
-      // DB-first: Check if we have cached results
-      const existingSearch = await findBrandExplorerSearch(handle)
-
-      if (existingSearch) {
-        const cachedData = await getBrandExplorerData(existingSearch.id)
-        const durationMs = Math.round(performance.now() - startTime)
-
-        if (cachedData) {
-          brandExplorerLogger.info("Brand explorer request completed (cached)", {
-            requestId,
-            handle,
-            statusCode: 200,
-            durationMs,
-            totalVideos: cachedData.summary.totalVideos,
-            totalInfluencers: cachedData.summary.totalInfluencers,
-            totalReach: cachedData.summary.totalReach,
-            cached: true,
-            searchId: existingSearch.id,
-          })
-
-          return c.json(toSearchResponse({ id: existingSearch.id, query: handle, ...cachedData }, true))
-        }
-      }
-
-      // Not cached: Run brand exploration
-      const result = await exploreBrand({ handle })
-
-      // Save to database - returns data in response format
-      const savedSearch = await saveBrandExplorerSearch(handle, result)
-
-      const durationMs = Math.round(performance.now() - startTime)
-
-      brandExplorerLogger.info("Brand explorer request completed", {
-        requestId,
-        handle,
-        statusCode: 200,
-        durationMs,
-        totalVideos: result.summary.totalVideos,
-        totalInfluencers: result.summary.totalInfluencers,
-        totalReach: result.summary.totalReach,
-        cached: false,
-        searchId: savedSearch.id,
-      })
-
-      return c.json(toSearchResponse(savedSearch, false))
-    } catch (error) {
-      const durationMs = Math.round(performance.now() - startTime)
-
-      if (error instanceof BrandExplorerError || error instanceof ApifyError) {
-        brandExplorerLogger.error("Brand explorer failed", {
-          requestId,
-          statusCode: 502,
-          durationMs,
-          errorType: error.name,
-          error: error.message,
-        })
-        return c.json({ error: 'Failed to explore brand', details: error.message }, 502)
-      }
-
-      brandExplorerLogger.error("Brand explorer failed - Internal error", {
-        requestId,
-        statusCode: 500,
-        durationMs,
-        errorType: "internal",
         error: error instanceof Error ? error.message : String(error),
       })
       return c.json({ error: 'Internal server error' }, 500)
@@ -624,101 +537,6 @@ const app = new Hono()
         error: error instanceof Error ? error.message : String(error),
       })
       return c.json({ error: 'Internal server error' }, 500)
-    }
-  })
-  .post('/insights', async (c) => {
-    const requestId = crypto.randomUUID()
-    const startTime = performance.now()
-
-    try {
-      const body = await c.req.json()
-      const { searchId } = body
-
-      if (!searchId || typeof searchId !== 'string') {
-        insightsLogger.warn("Invalid insights request", {
-          requestId,
-          error: "searchId_required",
-          statusCode: 400,
-        })
-        return c.json({ error: 'searchId is required' }, 400)
-      }
-
-      // Find the search to get its type
-      const search = await prisma.search.findUnique({
-        where: { id: searchId },
-      })
-
-      if (!search) {
-        insightsLogger.warn("Search not found for insights", {
-          requestId,
-          searchId,
-          statusCode: 404,
-        })
-        return c.json({ error: 'Search not found' }, 404)
-      }
-
-      // Fetch captions based on search type
-      let captions: string[] = []
-
-      if (search.type === 'keyword') {
-        const results = await prisma.searchResult.findMany({
-          where: { searchId },
-          select: {
-            video: {
-              select: { caption: true },
-            },
-          },
-        })
-        captions = results.map(r => r.video.caption)
-      } else if (search.type === 'brand_explorer') {
-        const videos = await prisma.video.findMany({
-          where: { searchId },
-          select: { caption: true },
-        })
-        captions = videos.map(v => v.caption)
-      }
-
-      insightsLogger.info("Generating insights", {
-        requestId,
-        searchId,
-        searchType: search.type,
-        captionCount: captions.length,
-      })
-
-      const insights = await generateInsights({
-        searchId,
-        captions,
-      })
-
-      const durationMs = Math.round(performance.now() - startTime)
-
-      insightsLogger.info("Insights generated successfully", {
-        requestId,
-        searchId,
-        durationMs,
-        themesCount: insights.contentPatterns.themes.length,
-        actionsCount: insights.suggestedActions.length,
-      })
-
-      return c.json(insights)
-    } catch (error) {
-      const durationMs = Math.round(performance.now() - startTime)
-
-      if (error instanceof InsightsError) {
-        insightsLogger.warn("Insights generation failed - insufficient data", {
-          requestId,
-          durationMs,
-          error: error.message,
-        })
-        return c.json({ error: error.message }, 400)
-      }
-
-      insightsLogger.error("Insights generation failed", {
-        requestId,
-        durationMs,
-        error: error instanceof Error ? error.message : String(error),
-      })
-      return c.json({ error: 'Failed to generate insights' }, 500)
     }
   })
 
